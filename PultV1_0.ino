@@ -511,7 +511,6 @@ void loop() {
 
     if (millis() - getchargetime > 300) {
       uint8_t cc = 3;
-      if (page == STATS) cc = 6;
       if (countcharge < cc) {
         if (page == MAIN) {
           if (countcharge == 0) shuttleStatus = 18;
@@ -538,8 +537,6 @@ void loop() {
         } else if (page == MENU) cmdSend(CMD_GET_MENU);  //cmdGetData();
         else if (page == ERRORS) cmdSend(CMD_GET_ERRORS);
         else if (page == OPTIONS) cmdSend(CMD_GET_PARAM);
-        else if (page == DIAGNOSTICS) cmdSend(34);
-        else if (page == STATS) cmdSend(36);
         else if (page == BATTERY_PROTECTION) cmdSend(38);
         //else if (page==11) cmdPalletConf();
         countcharge++;
@@ -692,8 +689,9 @@ void loop() {
         strmenu[2] = " Режим: " + fifolifo_modest;
         strmenu[3] = " Настройки";
         strmenu[4] = " Ошибки";
-        strmenu[5] = " Доп. функции";
-        strmenu[6] = " Назад";
+        strmenu[5] = " Выгрузка N палет";
+        strmenu[6] = " Вернуться в нач. поз.";
+        strmenu[7] = " Назад";
         MenuOut();
       } else if (page == ERRORS) {
         errn = 0;
@@ -784,16 +782,6 @@ void loop() {
           u8g2.setCursor(0, 16);
           u8g2.print("Нет ошибок");
         }
-      } else if (page == ADDITIONAL_FUNCTIONS) {  //доп функции
-        strmenu[0] = " Выгрузка N палет";
-        strmenu[1] = " Вернуться в нач.поз.";
-        strmenu[2] = " Диагностика";
-        strmenu[3] = " Режим эвакуации: " + num_no_yes[evacuatstatus];
-        strmenu[4] = " Статистика";
-        strmenu[5] = " Защита меню: " + num_no_yes[pass_menu];
-        strmenu[6] = " Обновление ПО ";
-        strmenu[7] = " Назад";
-        MenuOut();
       } else if (page == COUNT_START) {
         u8g2.setCursor(0, 5 + 1 * 11);
         u8g2.print(" Подсчет");
@@ -809,25 +797,6 @@ void loop() {
         MenuOut();
       } else if (page == WARNINGS_LOG) {
         u8g2.print(String(WarnMsgArray[warncode]));
-      } else if (page == DIAGNOSTICS) {
-        strmenu[0] = " Режим: " + String(testnum);
-        strmenu[1] = " Timer1: " + String(testtimer1);
-        strmenu[2] = " Timer2: " + String(testtimer2);
-        strmenu[3] = " Повторы: " + String(testrepeat);
-        strmenu[4] = " Старт";
-        MenuOut();
-      } else if (page == STATS) {
-        strmenu[0] = " См.Загр " + String(statistic[0]);
-        strmenu[1] = " См.Выгр " + String(statistic[1]);
-        strmenu[2] = " См.Упл " + String(statistic[2]);
-        strmenu[3] = " См.Подъем " + String(statistic[3]);
-        strmenu[4] = " См.Пробег " + String(statistic[4]);
-        strmenu[5] = " Выгр " + String(statistic[5]);
-        strmenu[6] = " Загр " + String(statistic[6]);
-        strmenu[7] = " Упл " + String(statistic[7]);
-        strmenu[8] = " Подъем " + String(statistic[8]);
-        strmenu[9] = " Пробег " + String(statistic[9]);
-        MenuOut();
       } else if (page == BATTERY_PROTECTION) {
         String templv = String(minlevel);
         if (minlevel == 31) templv = "---";
@@ -955,28 +924,6 @@ void loop() {
         u8g2.print(" места в канале!");
         u8g2.setCursor(0, 63);
         u8g2.print("< назад     вперед ОК");
-      } else if (page == UPDATE_FIRMWARE) {
-        if (!isUpdateStarted) {
-          WiFi.softAP(ssid, password, channel, hide_SSID, max_connection);
-          server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-            request->send(200, "text/plain", "Hi! I am ESP32.");
-          });
-          AsyncElegantOTA.begin(&server);  // Start ElegantOTA
-          server.begin();
-        }
-        isUpdateStarted = true;
-        u8g2.setCursor(0, 15);
-        u8g2.print(" Точка доступа:");
-        u8g2.setCursor(0, 28);
-        u8g2.print(" esp32UPDATE");
-        u8g2.setCursor(0, 39);
-        u8g2.print(" IP адрес: ");
-        u8g2.setCursor(0, 50);
-        u8g2.print(" ");
-        u8g2.print(WiFi.softAPIP());
-        u8g2.setCursor(0, 63);
-        u8g2.print("                  >ОК");
-
       } else if (page == MENU_PROTECTION) {
         temp_pin_code = temp_pin[0] * 1000 + temp_pin[1] * 100 + temp_pin[2] * 10 + temp_pin[3];
         u8g2.setCursor(0, 5 + 1 * 11);
@@ -1224,10 +1171,6 @@ void cmdSend(uint8_t numcmd) {
       break;
     case CMD_GET_PARAM:  //
       Serial2.print(shuttnumst + "dSGet_");
-      break;
-    case CMD_EVAC:  //эвакуация
-      if (evacuatstatus) Serial2.print(shuttnumst + "dEvOn_");
-      else Serial2.print(shuttnumst + "dEvOff");
       break;
     case CMD_BATTERY_PROTECTION:  // отключение от разряда батареи
       if (lowbatt < 10) Serial2.print(shuttnumst + "dBc00" + String(lowbatt));
@@ -1557,14 +1500,6 @@ void keypadEvent(KeypadEvent key) {
                   pageAfterPin = PACKING_CONTROL;
                   page = MENU_PROTECTION;
                 }
-              } else if (page == UPDATE_FIRMWARE) {
-                page = MAIN;
-                cursorPos = 1;
-              } else if (page == MENU && cursorPos == 6) {
-                page = ADDITIONAL_FUNCTIONS;
-                cursorPos = 1;
-                countcharge = 0;
-                getchargetime = millis();
               } else if (page == MENU && cursorPos == 4) {
                 if (pass_menu == 0) {
                   page = OPTIONS;
@@ -1575,37 +1510,18 @@ void keypadEvent(KeypadEvent key) {
                 } else {
                   pageAfterPin = OPTIONS;
                   cursorPos = 1;
-                  page = MENU_PROTECTION;
-                }
-              } else if (page == MENU && cursorPos == 7) {
+                  page = MENU_PROTECTION; }
+                } else if (page == MENU && cursorPos == 7) {
+                  cmdSend(CMD_BACK_TO_ORIGIN);
+                } else if (page == MENU && cursorPos == 8) {
                 page = MAIN;
                 cursorPos = 1;
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 1) {
+              } else if (page == MENU && cursorPos == 6) {
                 page = UNLOAD_PALLETE;
-                cursorPos = 1;
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 7) {
-                if (pass_menu == 0) {
-                  page = UPDATE_FIRMWARE;
-                } else {
-                  pageAfterPin = UPDATE_FIRMWARE;
-                  cursorPos = 1;
-                  page = MENU_PROTECTION;
-                }
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 8) {
-                page = MENU;
                 cursorPos = 1;
               } else if (page == ERRORS && cursorPos == 1) {
                 page = ERRORS_LOG;
               } else if (page == ERRORS && cursorPos == 3) {
-                page = MENU;
-                cursorPos = 1;
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 3) {
-                page = DIAGNOSTICS;
-                cursorPos = 1;
-                cmdSend(34);
-                countcharge = 0;
-                getchargetime = millis();
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 7) {
                 page = MENU;
                 cursorPos = 1;
               } else if (page == ERRORS && cursorPos == 2) {
@@ -1632,18 +1548,7 @@ void keypadEvent(KeypadEvent key) {
               //else if (page==11 && cursorPos==3) {
               //  cmdEvacuation();
               //}
-              else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 5) {
-                page = STATS;
-                cursorPos = 1;
-                for (uint8_t i = 0; i < 10; i++) {
-                  statistic[i] = 0;
-                }
-                //countcharge = 0;
-                odometr_pos = 0;
-                countcharge = 0;
-                getchargetime = millis();
-                cmdSend(36);
-              } else if (page == MENU && cursorPos == 1) {
+               else if (page == MENU && cursorPos == 1) {
                 palletconfst = ">>>";
                 cmdSend(CMD_PALLETE_COUNT);
               } else if (page == PACKING_CONTROL && cursorPos == 1) {
@@ -1661,12 +1566,7 @@ void keypadEvent(KeypadEvent key) {
                 page = ERRORS;
                 cursorPos = 1;
               } else if (page == ERRORS_LOG || page == WARNINGS_LOG) page = ERRORS;
-              else if (page == DIAGNOSTICS && cursorPos == 5) {
-                cmdSend(29);
-                delay(300);
-                page = MAIN;
-                cursorPos = 1;
-              } else if (page == ENGINEERING_MENU) {
+               else if (page == ENGINEERING_MENU) {
                 if (cursorPos == 1) {
                   page = CALIBRATION;
                   cursorPos = 1;
@@ -1797,7 +1697,7 @@ void keypadEvent(KeypadEvent key) {
               getchargetime = millis();
 
             } else {
-              if (page == ADDITIONAL_FUNCTIONS || page == MENU_PROTECTION) pass_menu_trig = 0;
+              if (page == MENU_PROTECTION) pass_menu_trig = 0;
               if (page == PACKING_WARN) page = MENU;
               if (page == CHANGE_CHANNEL) {
                 tempChannelNumber = channelNumber;
@@ -1815,14 +1715,15 @@ void keypadEvent(KeypadEvent key) {
               cmdSend(CMD_MOVEMENT_RIGHT);
             } else if (page == MAIN && manualMode) {
               cmdSend(CMD_STOP_MANUAL);
-            } else if (page == MENU || page == ERRORS || page == OPTIONS
-                       || page == ADDITIONAL_FUNCTIONS || page == PACKING_CONTROL
-                       || page == DIAGNOSTICS || page == STATS || page == BATTERY_PROTECTION
-                       || page == ENGINEERING_MENU) {
+            } else if (page == MENU 
+                    || page == ERRORS 
+                    || page == OPTIONS
+                    || page == PACKING_CONTROL
+                    || page == BATTERY_PROTECTION
+                    || page == ENGINEERING_MENU) {
               cursorPos--;
               if (cursorPos < 1) {
-                if (page == MENU) cursorPos = 7;
-                else if (page == ADDITIONAL_FUNCTIONS) cursorPos = 8;
+                if (page == MENU) cursorPos = 8;
                 else if (page == OPTIONS) cursorPos = 8;
                 else if (page == ENGINEERING_MENU) cursorPos = 11;
                 else if (page == PACKING_CONTROL) cursorPos = 3;
@@ -1870,16 +1771,15 @@ void keypadEvent(KeypadEvent key) {
               cmdSend(CMD_MOVEMENT_LEFT);
             } else if (page == MAIN && manualMode) {
               cmdSend(CMD_STOP_MANUAL);
-            } else if (page == MENU || page == ERRORS || page == ADDITIONAL_FUNCTIONS
-                       || page == PACKING_CONTROL || page == DIAGNOSTICS
-                       || page == STATS || page == BATTERY_PROTECTION) {
+            } else if (page == MENU 
+                      || page == ERRORS
+                      || page == PACKING_CONTROL
+                      || page == BATTERY_PROTECTION) {
               cursorPos++;
-              if ((cursorPos > 6 && page != MENU && page != STATS && page != ADDITIONAL_FUNCTIONS) || (cursorPos > 3 && page == PACKING_CONTROL)) cursorPos = 1;
+              if ((cursorPos > 6 && page != MENU) || (cursorPos > 3 && page == PACKING_CONTROL)) cursorPos = 1;
               else if (page == MENU) {
-                if (cursorPos > 7) cursorPos = 1;
-              } else if (page == ADDITIONAL_FUNCTIONS && cursorPos > 8) {
-                cursorPos = 1;
-              } else if (page == STATS && cursorPos > 10) cursorPos = 10;
+                if (cursorPos > 8) cursorPos = 1;
+              }  
               else if (page == BATTERY_PROTECTION && cursorPos > 2) cursorPos = 1;
               else if (page == ERRORS && cursorPos > 3) cursorPos = 1;
               else if (page == MENU && cursorPos > 7) cursorPos = 1;
@@ -1971,40 +1871,11 @@ void keypadEvent(KeypadEvent key) {
               minlevel -= 1;
               if (minlevel < 1) minlevel = 0;
               cmdSend(37);
-            } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 4) {
-              if (evacuatstatus) evacuatstatus = 0;
-              else evacuatstatus = 1;
-              cmdSend(CMD_EVAC);
-            } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 6) {
-              pass_menu_trig = 1;
-              page = MENU_PROTECTION;
-              cursorPos = 1;
             } else if (page == OPTIONS && cursorPos == 5) {
               lowbatt--;
               if (lowbatt < 0) lowbatt = 0;
               newlowbatt = lowbatt;
               cmdSend(CMD_BATTERY_PROTECTION);
-            } else if (page == DIAGNOSTICS && cursorPos == 1) {
-              testnum--;
-              if (testnum < 1) testnum = 1;
-              cmdSend(30);
-            } else if (page == DIAGNOSTICS && cursorPos == 2) {
-              if (testtimer1 <= 15) testtimer1--;
-              else testtimer1 -= 5;
-              if (testtimer1 < 0) testtimer1 = 90;
-              cmdSend(31);
-            } else if (page == DIAGNOSTICS && cursorPos == 3) {
-              if (testtimer2 <= 15) testtimer2--;
-              else testtimer2 -= 5;
-              if (testtimer2 < 0) testtimer2 = 90;
-              cmdSend(32);
-            } else if (page == DIAGNOSTICS && cursorPos == 4) {
-              if (testrepeat <= 20) testrepeat--;
-              else if (testrepeat <= 190) testrepeat -= 10;
-              else if (testrepeat <= 990) testrepeat -= 50;
-              else testrepeat -= 500;
-              if (testrepeat < 1) testrepeat = 19990;
-              cmdSend(33);
             } else if (page == STATUS_PGG && cursorPos == 2) {
               logWrite = !logWrite;
               Serial2.print(shuttnumst + "dLg" + logWrite);
@@ -2058,14 +1929,6 @@ void keypadEvent(KeypadEvent key) {
               else if (chnloffset < -100) chnloffset = -100;
               newchnloffset = chnloffset;
               cmdSend(CMD_CHNL_OFFSET);
-            } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 4) {
-              if (evacuatstatus) evacuatstatus = 0;
-              else evacuatstatus = 1;
-              cmdSend(CMD_EVAC);
-            } else if (page == ADDITIONAL_FUNCTIONS && cursorPos == 6) {
-              pass_menu_trig = 1;
-              page = MENU_PROTECTION;
-              cursorPos = 1;
             } else if (page == OPTIONS && cursorPos == 5) {
               lowbatt++;
               if (lowbatt > 50) lowbatt = 50;
@@ -2075,27 +1938,6 @@ void keypadEvent(KeypadEvent key) {
               minlevel += 1;
               if (minlevel > 29) minlevel = 30;
               cmdSend(37);
-            } else if (page == DIAGNOSTICS && cursorPos == 1) {
-              testnum++;
-              if (testnum > 4) testnum = 4;
-              cmdSend(30);
-            } else if (page == DIAGNOSTICS && cursorPos == 2) {
-              if (testtimer1 >= 15) testtimer1 += 5;
-              else testtimer1++;
-              if (testtimer1 > 90) testtimer1 = 0;
-              cmdSend(31);
-            } else if (page == DIAGNOSTICS && cursorPos == 3) {
-              if (testtimer2 >= 15) testtimer2 += 5;
-              else testtimer2++;
-              if (testtimer2 > 90) testtimer2 = 0;
-              cmdSend(32);
-            } else if (page == DIAGNOSTICS && cursorPos == 4) {
-              if (testrepeat >= 990) testrepeat += 500;
-              else if (testrepeat >= 190) testrepeat += 50;
-              else if (testrepeat >= 20) testrepeat += 5;
-              else testrepeat++;
-              if (testrepeat > 19990) testrepeat = 1;
-              cmdSend(33);
             } else if (page == MENU && cursorPos == 3) {  // режим fifo/lifo
               fifolifo_mode = !fifolifo_mode;
               cmdSend(CMD_FIFO_LIFO);
