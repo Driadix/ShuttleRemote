@@ -9,6 +9,21 @@
 #include <driver/rtc_io.h>
 //#include <esp_deep_sleep.h>
 #include "sleep_m.h"
+#include "ShuttleProtocol.h"
+
+ProtocolParser parserRadio;
+
+struct ShuttleStateCache {
+    uint8_t battery;
+    uint8_t status;
+    uint16_t errorCode;
+    uint8_t palleteCount;
+    uint16_t distanceF;
+    uint16_t distanceR;
+    uint32_t lastUpdate; // For timeout detection
+} activeShuttleState;
+
+uint8_t protocolSeq = 0;
 
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
@@ -315,10 +330,12 @@ void keypadEvent(KeypadEvent key);
 void PinSetpcf();
 void MarkTime();
 void ShowTime();
-void GetSerial2Data();
 void SetSleep();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
+void sendBinaryRequest(uint8_t msgID, uint8_t targetID);
+void processShuttlePacket(FrameHeader* header, uint8_t* payload);
+void pollSerial();
 #pragma endregion
 
 #pragma region setup
@@ -458,7 +475,7 @@ void loop()
   {
     AsyncElegantOTA.loop();
   }
-  GetSerial2Data();
+  pollSerial();
   // int Result, Status;
 
   String linkMode = " ";
@@ -564,49 +581,22 @@ void loop()
       if (page == DEBUG_INFO && SensorsDataTrig) cmdSend(44);
     }
 
-    if (millis() - getchargetime > 300)
-    {
-      uint8_t cc = 3;
-      if (countcharge < cc)
-      {
-        if (page == MAIN)
-        {
-          if (countcharge == 0)
-            shuttleStatus = 18;
-          else if (countcharge == 2 && shuttleStatus == 18)
-          {
-            shuttleStatus = 0;
-            shuttleBattery = -1;
-            errorcode = 0;
-            warncode = 0;
-            manualMode = false;
-            newMpr = 0;
-            quant = 0;
-            newshuttleLength = 0;
-            newspeedset = 0;
-            newlowbatt = 100;
-            newreverse = 2;
-            waittime = 0;
-            newwaittime = 0;
-            mproffset = 0;
-            newmproffset = 120;
-            chnloffset = 0;
-            newchnloffset = 120;
-          }
-          cmdSend(16);
+    static uint32_t lastPollTime = 0;
+    const uint32_t POLL_INTERVAL = 400; // 400ms target
+
+    if (millis() - lastPollTime >= POLL_INTERVAL) {
+        lastPollTime = millis();
+
+        // Context-aware request mapping
+        uint8_t requestID = MSG_REQ_HEARTBEAT; // Default for MAIN page
+
+        if (page == DEBUG_INFO || page == DIAGNOSTICS) {
+            requestID = MSG_REQ_SENSORS;
+        } else if (page == STATS) {
+            requestID = MSG_REQ_STATS;
         }
-        else if (page == MENU)
-          cmdSend(CMD_GET_MENU);  // cmdGetData();
-        else if (page == ERRORS)
-          cmdSend(CMD_GET_ERRORS);
-        else if (page == OPTIONS)
-          cmdSend(CMD_GET_PARAM);
-        else if (page == BATTERY_PROTECTION)
-          cmdSend(38);
-        // else if (page==11) cmdPalletConf();
-        countcharge++;
-        getchargetime = millis();
-      }
+
+        sendBinaryRequest(requestID, shuttleNumber);
     }
     if (millis() - blinkshuttnumInterval > 250)
     {
@@ -1214,107 +1204,22 @@ void cmdSend(uint8_t numcmd)
     case CMD_LOAD:  //загрузка
       manualMode = false;
       Serial2.print(shuttnumst + "dLoad_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLoad_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLoad_!")
-      {
-        Serial2.print(shuttnumst + "dLoad_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLoad_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLoad_!") Serial2.print(shuttnumst + "dLoad_");
-      }
       break;
     case CMD_UNLOAD:  //выгрузка
       manualMode = false;
       Serial2.print(shuttnumst + "dUnld_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dUnld_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dUnld_!")
-      {
-        Serial2.print(shuttnumst + "dUnld_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dUnld_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dUnld_!") Serial2.print(shuttnumst + "dUnld_");
-      }
       break;
     case CMD_CONT_LOAD:  //прод.загрузка
       manualMode = false;
       Serial2.print(shuttnumst + "dLLoad");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLLoad!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLLoad!")
-      {
-        Serial2.print(shuttnumst + "dLLoad");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLLoad!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLLoad!") Serial2.print(shuttnumst + "dLLoad");
-      }
       break;
     case CMD_CONT_UNLOAD:  //прод.выгрузка
       manualMode = false;
       Serial2.print(shuttnumst + "dLUnld");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLUnld!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLUnld!")
-      {
-        Serial2.print(shuttnumst + "dLUnld");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLUnld!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLUnld!") Serial2.print(shuttnumst + "dLUnld");
-      }
       break;
     case CMD_DEMO:  // прод.выгрузка
       manualMode = false;
       Serial2.print(shuttnumst + "dDemo_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dDemo_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dDemo_!")
-      {
-        Serial2.print(shuttnumst + "dDemo_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dDemo_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dDemo_!") Serial2.print(shuttnumst + "dDemo_");
-      }
       break;
     case CMD_PLATFORM_LIFTING:  //подъем палатформы
       manualCommand = "/\\";
@@ -1424,43 +1329,9 @@ void cmdSend(uint8_t numcmd)
     case CMD_PALLETE_COUNT: Serial2.print(shuttnumst + "dGetQu"); break;
     case CMD_PACKING_BACK:  //уплотнение назад
       Serial2.print(shuttnumst + "dComBa");
-      cnt = millis();
-      while (inputString != shuttnumst + "dComBa!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dComBa!")
-      {
-        Serial2.print(shuttnumst + "dComBa");
-        cnt = millis();
-        while (inputString != shuttnumst + "dComBa!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dComBa!") Serial2.print(shuttnumst + "dComBa");
-      }
       break;
     case CMD_PACKING_FORWARD:  //уплотнение вперед
       Serial2.print(shuttnumst + "dComFo");
-      cnt = millis();
-      while (inputString != shuttnumst + "dComFo!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dComFo!")
-      {
-        Serial2.print(shuttnumst + "dComFo");
-        cnt = millis();
-        while (inputString != shuttnumst + "dComFo!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dComFo!") Serial2.print(shuttnumst + "dComFo");
-      }
       break;
     case CMD_WAIT_TIME:
       if (waittime < 10)
@@ -1511,43 +1382,9 @@ void cmdSend(uint8_t numcmd)
       break;
     case CMD_RESET:
       Serial2.print(shuttnumst + "dReset");
-      cnt = millis();
-      while (inputString != shuttnumst + "dReset!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dReset!")
-      {
-        Serial2.print(shuttnumst + "dReset");
-        cnt = millis();
-        while (inputString != shuttnumst + "dReset!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dReset!") Serial2.print(shuttnumst + "dReset");
-      }
       break;
     case CMD_MANUAL:
       Serial2.print(shuttnumst + "dManua");
-      cnt = millis();
-      while (inputString != shuttnumst + "dManua!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dManua!")
-      {
-        Serial2.print(shuttnumst + "dManua");
-        cnt = millis();
-        while (inputString != shuttnumst + "dManua!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dManua!") Serial2.print(shuttnumst + "dManua");
-      }
       break;
     case 46:
       String tempsnum = shuttnumst;
@@ -2622,525 +2459,6 @@ void ShowTime()
   Elapsed = millis() - Elapsed;
 }
 
-void GetSerial2Data()
-{
-  uint8_t count_inbyte = 0;
-  inputString = "";
-  while (Serial2.available() > 0)
-  {
-    int8_t inbyte = Serial2.read();
-    if (page > DEBUG_INFO)
-    {
-      settDataIn[count_inbyte] = inbyte;
-      count_inbyte++;
-    }
-    char inChar = (char)inbyte;
-    if (inChar)
-    {
-      inputString += inChar;
-      if (inChar == '!')
-      {
-        stringComplete = true;
-        break;
-      }
-    }
-    delayMicroseconds(1750);
-  }
-  Serial2in = inputString;
-  if (stringComplete)
-  {
-    //Serial.println(inputString);
-    String TempStr = inputString.substring(0, 2);
-    if (TempStr == shuttnumst)
-    {
-      TempStr = inputString.substring(2, 4);
-      uint8_t i = 0;
-      uint8_t k = 0;
-      uint8_t l = 0;
-      if (TempStr == "t1")
-      {  // get fifo, charge, status
-        countcharge = 3;
-        TempStr = inputString.substring(4, 5);
-        int TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) fifolifo_mode = TempInt;
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 50)
-        {
-          if (TempInt > 30)
-          {
-            showarn = true;
-            TempInt -= 30;
-          }
-          else
-            showarn = false;
-          if (TempInt == 10 && shuttleStatus == 13) quant = 0;
-          shuttleStatus = TempInt;
-          if (shuttleStatus == 1)
-            manualMode = 1;
-          else
-            manualMode = 0;
-          if (shuttleStatus == 5)
-            evacuatstatus = 1;
-          else
-            evacuatstatus = 0;
-        }
-        else
-          shuttleStatus = 0;
-        for (k = 0; k <= 2; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(7 + i, 8 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 101)
-        {
-          shuttleBattery = TempInt;
-        }
-        else
-        {
-          shuttleBattery = -1;
-          newMpr = 0;
-          quant = 0;
-          newshuttleLength = 0;
-          newspeedset = 0;
-          warncode = 0;
-          newlowbatt = 100;
-          newreverse = 2;
-          waittime = 0;
-          newwaittime = 0;
-          mproffset = 0;
-          newmproffset = 120;
-          chnloffset = 0;
-          newchnloffset = 120;
-        }
-        TempStr = inputString.substring(9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99 && millis() - uctimer > 1000 && shuttleStatus != 13)
-        {
-          palletconf = TempInt;
-          palletconfst = String(palletconf);
-        }
-        /*if (page == PACKING_CONTROL) {
-          page = MAIN;
-          cursorPos = 1;
-        }*/
-      }
-      else if (TempStr == "t3")
-      {  // get pallet conf получите конфигурацию поддона
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 100 && millis() - uctimer > 1000 && shuttleStatus != 13)
-        {
-          palletconf = TempInt;
-          palletconfst = String(palletconf);
-        }
-      }
-      else if (TempStr == "t4")
-      {  // get max speed, fifolifo, mpr / получите максимальную скорость, fifo lifo, mpr
-        countcharge = 3;
-
-        uint8_t i = 0;
-        TempStr = inputString.substring(4, 5);
-        fifolifo = TempStr.toInt();
-        if (newreverse != 2 && newreverse != fifolifo)
-        {
-          fifolifo = newreverse;
-          if (fifolifo)
-            cmdSend(CMD_REVERSE_OFF);
-          else
-            cmdSend(CMD_REVERSE_ON);
-        }
-        else if (newreverse == 2)
-          newreverse = fifolifo;
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(7 + i, 8 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 7 + i);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 100)
-        {
-          speedset = TempInt * 10.41;
-          speedset = ((speedset + 25) / 50) * 50;
-          if (newspeedset != 0 && newspeedset != speedset)
-          {
-            speedset = newspeedset;
-            cmdSend(CMD_SET_SPEED);
-          }
-        }
-        for (k = 0; k <= 2; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(8 + i, 9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 500)
-        {
-          mpr = TempInt;
-          if (newMpr != 0 && newMpr != mpr)
-          {
-            mpr = newMpr;
-            cmdSend(CMD_INTER_PALL_DISTANCE);
-          }
-        }
-        int p = 0;
-        for (p = 0; p <= 1; p++)
-        {
-          TempStr = inputString.substring(10 + i + k + p, 11 + i + k + p);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(9 + i + k, 10 + i + k + p);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 50)
-        {
-          lowbatt = TempInt;
-          if (newlowbatt != 100 && newlowbatt != lowbatt)
-          {
-            lowbatt = newlowbatt;
-            cmdSend(CMD_BATTERY_PROTECTION);
-          }
-        }
-        TempStr = inputString.substring(11 + i + k + p);
-        TempInt = TempStr.toInt();
-        if (TempInt == 800 || TempInt == 1000 || TempInt == 1200)
-        {
-          shuttleLength = TempInt;
-          if (newshuttleLength != 0 && newshuttleLength != shuttleLength)
-          {
-            shuttleLength = newshuttleLength;
-            cmdSend(CMD_SET_LENGTH);
-          }
-        }
-      }
-      else if (TempStr == "rc")
-      {  // get error получить ошибку
-        countcharge = 3;
-        uint8_t i = 0;
-        TempStr = inputString.substring(4, 5);
-        for (i = 0; i <= 4; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        uint16_t TempInt = TempStr.toInt();
-        if (TempInt >= 0)
-        {
-          errorcode = TempInt;
-        }
-        TempStr = inputString.substring(7 + i);
-        TempInt = TempStr.toInt();
-      }
-      else if (TempStr == "wc")
-      {
-        TempStr = inputString.substring(4, 7);
-        uint8_t wrncd = TempStr.toInt();
-        if (wrncd != warncode && millis() - warntimer > 2000)
-        {
-          warntimer = millis();
-          warncode = wrncd;
-        }
-      }
-      else if (TempStr == "t6")
-      {  // get test получить тест
-        countcharge = 3;
-        uint8_t i = 0;
-        uint8_t k = 0;
-        TempStr = inputString.substring(4, 5);
-        testnum = TempStr.toInt();
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99)
-        {
-          testtimer1 = TempInt;
-        }
-        for (k = 0; k <= 1; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(7 + i, 8 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99)
-        {
-          testtimer2 = TempInt;
-        }
-        TempStr = inputString.substring(9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0)
-        {
-          testrepeat = TempInt;
-        }
-      }
-      else if (TempStr == "FL")
-      {  // get fifo away, fifo/lifo mode уберите fifo, режим fifo/lifo
-        countcharge = 3;
-        TempStr = inputString.substring(4, 5);
-        int TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) shuttbackaway = TempInt;
-        TempStr = inputString.substring(5, 6);
-        TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) fifolifo_mode = TempInt;
-      }
-      else if (TempStr == "pq")
-      {  // get downloads quant pallet получите поддон количества загрузок
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt > 0 && TempInt < 100)
-        {
-          quant = TempInt;
-          shuttleStatus = 13;
-        }
-        else
-          quant = 0;
-        Serial.println("Quant 2 = " + String(quant) + " string: " + TempStr + " fullstr: " + inputString);
-      }
-      else if (TempStr == "ml")
-      {  // get minlevel получить минимальный уровень
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 30)
-        {
-          minlevel = TempInt;
-        }
-        else
-          minlevel = 31;
-      }
-      else if (TempStr == "st")
-      {  // get statistic odometr получите статистику одометра
-        countcharge = 0;
-        TempStr = inputString.substring(4, 5);
-        int TempStat = TempStr.toInt();
-        TempStr = inputString.substring(6);
-        int TempInt = TempStr.toInt();
-        if (TempStat >= 0 && TempStat < 10 && TempInt >= 0)
-        {
-          statistic[TempStat] = TempInt;
-          getchargetime = millis();
-          if (TempInt >= 0)
-          {
-            // countcharge = 0;
-            odometr_pos = TempStat + 1;
-            if (odometr_pos < 10)
-            {
-              // cmdStatistic();
-              cyclegetcharge = 0;
-              // countcharge = 0;
-            }
-          }
-        }
-      }
-      else if (TempStr == "iu")
-      {  // калибровка
-        TempStr = inputString.substring(2, 8);
-        int Tempoffs = TempStr.toInt();
-        if (Tempoffs > 0)
-        {
-          calibret = Tempoffs;
-          calibret = "Да";
-        }
-        else
-          calibret = "Нет";
-      }
-      else if (TempStr == "yt")
-      {
-        countcharge = 3;
-        TempStr = inputString.substring(4, 8);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 1500)
-        {
-          sensor_channel_f = TempInt;
-        }
-
-        TempStr = inputString.substring(9, 13);
-        int Tempint = TempStr.toInt();
-        if (Tempint >= 0 && Tempint <= 1500)
-        {
-          sensor_channel_r = Tempint;
-        }
-
-        TempStr = inputString.substring(14, 18);
-        int Temp_sens_pl_f = TempStr.toInt();
-        if (Temp_sens_pl_f >= 0 && Temp_sens_pl_f <= 1500)
-        {
-          sensor_pallete_F = Temp_sens_pl_f;
-        }
-
-        TempStr = inputString.substring(19, 23);
-        int Temp_sens_pl_r = TempStr.toInt();
-        if (Temp_sens_pl_r >= 0 && Temp_sens_pl_r <= 1500)
-        {
-          sensor_pallete_R = Temp_sens_pl_r;
-        }
-
-        TempStr = inputString.substring(24, 28);
-        int Temp_enc = TempStr.toInt();
-        if (Temp_enc >= 0 && Temp_enc <= 4096)
-        {
-          enc_mm = Temp_enc;
-        }
-
-        TempStr = inputString.substring(29, 30);
-        int tempInt = TempStr.toInt();
-        if (tempInt >= 0)
-        {
-          DATCHIK_F1 = tempInt;
-        }
-
-        TempStr = inputString.substring(31, 32);
-        int tempint = TempStr.toInt();
-        if (tempint >= 0)
-        {
-          DATCHIK_F2 = tempint;
-        }
-
-        TempStr = inputString.substring(33, 34);
-        int Temp_DATCH_r1 = TempStr.toInt();
-        if (Temp_DATCH_r1 >= 0)
-        {
-          DATCHIK_R1 = Temp_DATCH_r1;
-        }
-
-        TempStr = inputString.substring(35, 36);
-        int Temp_DATCH_r2 = TempStr.toInt();
-        if (Temp_DATCH_r2 >= 0)
-        {
-          DATCHIK_R2 = Temp_DATCH_r2;
-        }
-      }
-      else if (TempStr == "lg")
-      {
-        TempStr = inputString.substring(4, 5);
-        logWrite = TempStr.toInt();
-      }
-      else if (TempStr == "wt")
-      {
-        TempStr = inputString.substring(4, 6);
-        waittime = TempStr.toInt();
-        if (newwaittime && newwaittime != waittime)
-        {
-          waittime = newwaittime;
-          cmdSend(CMD_WAIT_TIME);
-        }
-      }
-      else if (TempStr == "wo")
-      {
-        TempStr = inputString.substring(4, 7);
-        mproffset = TempStr.toInt() - 100;
-        if (newmproffset != 120 && newmproffset != mproffset)
-        {
-          mproffset = newmproffset;
-          cmdSend(CMD_MPR_OFFSET);
-        }
-        TempStr = inputString.substring(8, 11);
-        chnloffset = TempStr.toInt() - 100;
-        if (newchnloffset != 120 && newchnloffset != chnloffset)
-        {
-          chnloffset = newchnloffset;
-          cmdSend(CMD_CHNL_OFFSET);
-        }
-      }
-    }
-    UpdateParam = true;
-    //}
-    displayUpdate = true;
-  }
-  stringComplete = false;
-}
-
-String GetSerial2Ans_()
-{
-  int8_t inByte = 0;
-  String inStr = "";
-  if (Serial2.available())  // Получаем команду
-  {
-    inByte = Serial2.read();
-    char inChar = (char)inByte;
-    inStr += inChar;
-    delayMicroseconds(1750);
-    inByte = Serial2.read();
-    inChar = (char)inByte;
-    inStr += inChar;
-    while (inStr != shuttnumst && Serial2.available())
-    {
-      inStr = inStr.substring(1, 2);
-      delayMicroseconds(1750);
-      inByte = Serial2.read();
-      inChar = (char)inByte;
-      inStr += inChar;
-    }
-    if (inStr == shuttnumst)
-    {
-      int cnt = millis();
-      while (inStr.length() <= 7 && millis() - cnt < 50)
-      {
-        delayMicroseconds(100);
-        if (Serial2.available())
-        {
-          inByte = Serial2.read();
-          inChar = (char)inByte;
-          inStr += inChar;
-        }
-      }
-      if (inStr.length() == 8) return inStr;
-    }
-  }
-  return inStr;
-}
-String GetSerial2Ans()
-{
-  int8_t inByte = 0;
-  String inStr = "";
-  while (Serial2.available())  // Получаем команду
-  {
-    inByte = Serial2.read();
-    char inChar = (char)inByte;
-    inStr += inChar;
-    delayMicroseconds(1750);
-  }
-  return inStr;
-}
 
 void SetSleep()
 {
@@ -3232,3 +2550,78 @@ void MenuOut()
   }
 }
 #pragma endregion
+
+void sendBinaryRequest(uint8_t msgID, uint8_t targetID) {
+    uint8_t buffer[sizeof(FrameHeader) + 2]; // Header + CRC (no payload for requests usually)
+    FrameHeader* header = (FrameHeader*)buffer;
+
+    header->sync1 = PROTOCOL_SYNC_1;
+    header->sync2 = PROTOCOL_SYNC_2;
+    header->length = 0;
+    header->targetID = targetID;
+    header->seq = protocolSeq++;
+    header->msgID = msgID;
+
+    ProtocolUtils::appendCRC(buffer, sizeof(FrameHeader));
+    Serial2.write(buffer, sizeof(buffer));
+}
+
+void processShuttlePacket(FrameHeader* header, uint8_t* payload) {
+    // Only process data from the shuttle we are currently controlling
+    if (header->targetID != shuttleNumber) return;
+
+    if (header->msgID == MSG_HEARTBEAT) {
+        TelemetryPacket* tel = (TelemetryPacket*)payload;
+        activeShuttleState.battery = tel->batteryCharge;
+        activeShuttleState.status = tel->shuttleStatus;
+        activeShuttleState.errorCode = tel->errorCode;
+        activeShuttleState.palleteCount = tel->palleteCount;
+        activeShuttleState.lastUpdate = millis();
+
+        // Update legacy globals to keep UI working
+        shuttleBattery = tel->batteryCharge;
+        shuttleStatus = tel->shuttleStatus;
+        errorcode = tel->errorCode;
+        // Map status to manual mode flag if needed
+        if (shuttleStatus == 1) manualMode = true; else manualMode = false;
+
+        // Map status 5 to evacuation
+        if (shuttleStatus == 5) evacuatstatus = 1; else evacuatstatus = 0;
+
+        // If status is "Unloading by number" (13), update quant if needed or handled elsewhere
+        // Note: The original code had specific logic for quant reset on status 10
+        if (shuttleStatus == 10 && shuttleStatus == 13) quant = 0;
+
+        displayUpdate = true;
+    }
+    else if (header->msgID == MSG_SENSORS) {
+        SensorPacket* sens = (SensorPacket*)payload;
+        activeShuttleState.distanceF = sens->distanceF;
+        activeShuttleState.distanceR = sens->distanceR;
+
+        // Update legacy globals
+        sensor_channel_f = sens->distanceF;
+        sensor_channel_r = sens->distanceR;
+        sensor_pallete_F = sens->distancePltF;
+        sensor_pallete_R = sens->distancePltR;
+        enc_mm = sens->angle; // Using angle field for encoder value as per protocol/usage mapping
+
+        // Update discrete sensors from hardwareFlags
+        DATCHIK_F1 = (sens->hardwareFlags >> 0) & 1;
+        DATCHIK_F2 = (sens->hardwareFlags >> 1) & 1;
+        DATCHIK_R1 = (sens->hardwareFlags >> 2) & 1;
+        DATCHIK_R2 = (sens->hardwareFlags >> 3) & 1;
+
+        displayUpdate = true;
+    }
+}
+
+void pollSerial() {
+    while (Serial2.available()) {
+        FrameHeader* header = parserRadio.feed(Serial2.read());
+        if (header) {
+            // We have a complete, CRC-verified packet!
+            processShuttlePacket(header, (uint8_t*)header + sizeof(FrameHeader));
+        }
+    }
+}
