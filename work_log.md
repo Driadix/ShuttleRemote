@@ -173,3 +173,46 @@
 - Validated that `cmdSend` was bypassed for critical safety commands to ensure direct mapping to `ShuttleProtocol` enums.
 - Validated state transitions ensuring no "spamming" of move commands.
 - Confirmed safety stop is triggered on button release.
+
+
+Task 5: Context-Aware Telemetry Polling
+Goal: Transition from blindly blasting data requests to a smart, state-driven polling engine.
+
+Context:
+The legacy polling system was fragmented and used multiple counters (countcharge, cyclegetcharge, getchargetime) scattered across loop() and keypadEvent(). It often sent requests blindly (e.g., cmdSend(16)) on random key releases.
+
+Actions Taken:
+1.  **Established Dynamic Polling Engine**:
+    *   Added new global variables: `uint32_t lastPollTime`, `uint32_t currentPollInterval`, `uint32_t lastSensorPollTime`.
+    *   Implemented a unified, non-blocking polling logic in `loop()` of `PultV1_0_2.ino`.
+    *   The engine checks `!isManualMoving && !isOtaUpdating` before polling.
+
+2.  **Contextual Request Routing**:
+    *   The engine dynamically sets `currentPollInterval` based on `page`:
+        *   `MAIN`: 400ms (fast heartbeat).
+        *   `DEBUG_INFO`: 1500ms (slow heartbeat) + 300ms (fast sensor polling).
+        *   Other pages: 1500ms (background heartbeat).
+    *   Requests are queued using `queueRequest(SP::MSG_REQ_HEARTBEAT, shuttleNumber)`.
+    *   For `DEBUG_INFO`, a secondary timer polls `SP::MSG_REQ_SENSORS` every 300ms.
+
+3.  **Purged Legacy Polling Mess**:
+    *   Removed `uint8_t countcharge`, `uint8_t cyclegetcharge`, `unsigned long getchargetime` global variables.
+    *   Removed the legacy `if (millis() - getchargetime > 300)` polling block in `loop()`.
+    *   Cleaned up the `checkA0time` block in `loop()`, removing `cyclegetcharge` logic and `cmdSend(35/44)` calls, while preserving battery monitoring.
+    *   Removed all legacy `cmdSend(16)` calls from `keypadEvent()` (triggered on key releases or wake-up) and `loop()` (e.g., after unload).
+    *   Removed legacy `cmdSend(16)` and variable resets from `setup()`.
+
+Result:
+The system now uses a single, robust, state-aware polling mechanism that respects radio bandwidth and UI context. Legacy "blind blasting" code has been completely removed.
+
+
+Implemented Task 6: Configuration Parameter Sync (Config GET/SET).
+- Introduced `cachedConfig[16]` global array to store configuration parameters.
+- Updated `handleRx` to process `SP::MSG_CONFIG_REP` and update the cache.
+- Refactored `OPTIONS` and `ENGINEERING_MENU` pages in `loop()` to render from `cachedConfig`.
+- Refactored `keypadEvent` to update `cachedConfig` and call `queueConfigSet` for parameter changes.
+- Implemented contextual requesting (`queueConfigGet`) when entering configuration pages.
+- Removed legacy global variables (`mpr`, `speedset`, `shuttleLength`, etc.) and string-based `cmdSend` logic.
+- Implemented unit conversion for `CFG_MAX_SPEED` to maintain user-friendly 0-100% display.
+
+
