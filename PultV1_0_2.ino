@@ -18,9 +18,8 @@ namespace SP {
 enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
 
 struct TxJob {
-  uint8_t msgID;
-  SP::CommandPacket payload;
-  uint8_t targetID;
+  uint8_t txBuffer[64];
+  uint8_t txLength;
   uint8_t seqNum;
   uint32_t lastTxTime;
   uint8_t retryCount;
@@ -38,6 +37,8 @@ SP::SensorPacket cachedSensors;
 bool isDisplayDirty = false;
 bool isOtaUpdating = false;
 uint8_t nextSeqNum = 0;
+bool showQueueFull = false;
+uint32_t queueFullTimer = 0;
 
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
@@ -351,9 +352,9 @@ void MenuOut();
 void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
 void handleRx();
 void processTxQueue();
-void queueCommand(SP::CommandPacket packet, uint8_t targetID);
-void queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID);
-void queueRequest(uint8_t msgID, uint8_t targetID);
+bool queueCommand(SP::CommandPacket packet, uint8_t targetID);
+bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID);
+bool queueRequest(uint8_t msgID, uint8_t targetID);
 #pragma endregion
 
 #pragma region setup
@@ -696,7 +697,12 @@ void loop()
           u8g2.print("Выгрузка " + String(quant) + " паллет");
         else
           u8g2.print(shuttleStatusArray[shuttleStatus]);
-        if (warncode)
+
+        if (showQueueFull) {
+            u8g2.setCursor(0, 40);
+            u8g2.print("! QUEUE FULL !");
+            if (millis() - queueFullTimer > 2000) showQueueFull = false;
+        } else if (warncode)
         {
           u8g2.setCursor(0, 40);
           u8g2.print("! " + WarnMsgArray[warncode] + " !");
@@ -1243,145 +1249,145 @@ void cmdSend(uint8_t numcmd)
   {
     case CMD_STOP:
       cmd.cmdType = SP::CMD_STOP;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       manualCommand = " ";
       break;
     case CMD_STOP_MANUAL:
       cmd.cmdType = SP::CMD_STOP_MANUAL;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       manualCommand = " ";
       break;
     case CMD_LOAD:
       cmd.cmdType = SP::CMD_LOAD;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       break;
     case CMD_UNLOAD:
       cmd.cmdType = SP::CMD_UNLOAD;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       break;
     case CMD_CONT_LOAD:
       cmd.cmdType = SP::CMD_LONG_LOAD;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       break;
     case CMD_CONT_UNLOAD:
       cmd.cmdType = SP::CMD_LONG_UNLOAD;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       break;
     case CMD_DEMO:
       cmd.cmdType = SP::CMD_DEMO;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       break;
     case CMD_PLATFORM_LIFTING:
       cmd.cmdType = SP::CMD_LIFT_UP;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "/\\";
       break;
     case CMD_PLATFORM_UNLIFTING:
       cmd.cmdType = SP::CMD_LIFT_DOWN;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "\\/";
       break;
     case CMD_MOVEMENT_LEFT:
       cmd.cmdType = SP::CMD_MOVE_LEFT_MAN;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "<<";
       break;
     case CMD_MOVEMENT_RIGHT:
       cmd.cmdType = SP::CMD_MOVE_RIGHT_MAN;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = ">>";
       break;
     case CMD_REVERSE_ON:
-      queueConfigSet(SP::CFG_REVERSE_MODE, 1, target);
+      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 1, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_REVERSE_OFF:
-      queueConfigSet(SP::CFG_REVERSE_MODE, 0, target);
+      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 0, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_INTER_PALL_DISTANCE:
-      queueConfigSet(SP::CFG_INTER_PALLET, mpr, target);
+      if (!queueConfigSet(SP::CFG_INTER_PALLET, mpr, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_UNLOAD_PALLET_BY_NUMBER:
       cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
       cmd.arg1 = quant;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 16:
-      queueRequest(SP::MSG_REQ_HEARTBEAT, target);
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 17:
-      queueConfigSet(SP::CFG_SHUTTLE_NUM, shuttleTempNum, target);
+      if (!queueConfigSet(SP::CFG_SHUTTLE_NUM, shuttleTempNum, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_PING:
       cmd.cmdType = SP::CMD_PING;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_BACK_TO_ORIGIN:
       cmd.cmdType = SP::CMD_HOME;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_SET_SPEED:
-      queueConfigSet(SP::CFG_MAX_SPEED, speedset / 10.41, target);
+      if (!queueConfigSet(SP::CFG_MAX_SPEED, speedset / 10.41, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_SET_LENGTH:
-      queueConfigSet(SP::CFG_SHUTTLE_LEN, shuttleLength, target);
+      if (!queueConfigSet(SP::CFG_SHUTTLE_LEN, shuttleLength, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_GET_PARAM:
-      queueRequest(SP::MSG_REQ_STATS, target);
+      if (!queueRequest(SP::MSG_REQ_STATS, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_BATTERY_PROTECTION:
-      queueConfigSet(SP::CFG_MIN_BATT, lowbatt, target);
+      if (!queueConfigSet(SP::CFG_MIN_BATT, lowbatt, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_GET_ERRORS:
-      queueRequest(SP::MSG_REQ_HEARTBEAT, target);
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_GET_MENU:
-      queueRequest(SP::MSG_REQ_HEARTBEAT, target);
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_PALLETE_COUNT:
       cmd.cmdType = SP::CMD_COUNT_PALLETS;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_PACKING_BACK:
       cmd.cmdType = SP::CMD_COMPACT_R;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_PACKING_FORWARD:
       cmd.cmdType = SP::CMD_COMPACT_F;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_WAIT_TIME:
-      queueConfigSet(SP::CFG_WAIT_TIME, waittime, target);
+      if (!queueConfigSet(SP::CFG_WAIT_TIME, waittime, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_MPR_OFFSET:
-      queueConfigSet(SP::CFG_MPR_OFFSET, mproffset, target);
+      if (!queueConfigSet(SP::CFG_MPR_OFFSET, mproffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_CHNL_OFFSET:
-      queueConfigSet(SP::CFG_CHNL_OFFSET, chnloffset, target);
+      if (!queueConfigSet(SP::CFG_CHNL_OFFSET, chnloffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_FIFO_LIFO:
-      queueConfigSet(SP::CFG_FIFO_LIFO, fifolifo_mode, target);
+      if (!queueConfigSet(SP::CFG_FIFO_LIFO, fifolifo_mode, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 43:
       cmd.cmdType = SP::CMD_CALIBRATE;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 44:
-      queueRequest(SP::MSG_REQ_SENSORS, target);
+      if (!queueRequest(SP::MSG_REQ_SENSORS, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_RESET:
       cmd.cmdType = SP::CMD_RESET_ERROR;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_MANUAL:
       cmd.cmdType = SP::CMD_MANUAL_MODE;
-      queueCommand(cmd, target);
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
   }
 }
@@ -1850,7 +1856,7 @@ void keypadEvent(KeypadEvent key)
                 else if (cursorPos == 7) cmd.arg1 = 3000;
                 else if (cursorPos == 8) cmd.arg1 = 5000;
 
-                if (cursorPos < 9) queueCommand(cmd, shuttleNumber);
+                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
 
                 if (cursorPos == 9)
                 {
@@ -1873,7 +1879,7 @@ void keypadEvent(KeypadEvent key)
                 else if (cursorPos == 7) cmd.arg1 = 3000;
                 else if (cursorPos == 8) cmd.arg1 = 5000;
 
-                if (cursorPos < 9) queueCommand(cmd, shuttleNumber);
+                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
 
                 if (cursorPos == 9)
                 {
@@ -2178,7 +2184,7 @@ void keypadEvent(KeypadEvent key)
               SP::CommandPacket cmd;
               cmd.cmdType = SP::CMD_LOG_MODE;
               cmd.arg1 = logWrite;
-              queueCommand(cmd, shuttleNumber);
+              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
               cmdSend(44);
             }
             break;
@@ -2364,7 +2370,7 @@ void keypadEvent(KeypadEvent key)
             {
               SP::CommandPacket cmd;
               cmd.cmdType = SP::CMD_PING;
-              queueCommand(cmd, Tempshutnum);
+              if (!queueCommand(cmd, Tempshutnum)) { showQueueFull = true; queueFullTimer = millis(); }
             }
           }
         }
@@ -2399,41 +2405,82 @@ void ShowTime()
 }
 
 
-void queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
+bool queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
   uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
   if (nextTail != txHead) {
-    txQueue[txTail].msgID = SP::MSG_COMMAND;
-    txQueue[txTail].payload = cmd;
-    txQueue[txTail].targetID = targetID;
-    txQueue[txTail].seqNum = nextSeqNum++;
-    txQueue[txTail].retryCount = 0;
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = sizeof(SP::CommandPacket);
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = SP::MSG_COMMAND;
+
+    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cmd, sizeof(SP::CommandPacket));
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket));
+    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket) + 2;
+
     txTail = nextTail;
+    return true;
   }
+  return false;
 }
 
-void queueRequest(uint8_t msgID, uint8_t targetID) {
+bool queueRequest(uint8_t msgID, uint8_t targetID) {
   uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
   if (nextTail != txHead) {
-    txQueue[txTail].msgID = msgID;
-    txQueue[txTail].targetID = targetID;
-    txQueue[txTail].seqNum = nextSeqNum++;
-    txQueue[txTail].retryCount = 0;
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = 0;
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = msgID;
+
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader));
+    job->txLength = sizeof(SP::FrameHeader) + 2;
+
     txTail = nextTail;
+    return true;
   }
+  return false;
 }
 
-void queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID) {
+bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID) {
   uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
   if (nextTail != txHead) {
-    txQueue[txTail].msgID = SP::MSG_CONFIG_SET;
-    SP::ConfigPacket* cfg = (SP::ConfigPacket*)&txQueue[txTail].payload;
-    cfg->paramID = paramID;
-    cfg->value = value;
-    txQueue[txTail].targetID = targetID;
-    txQueue[txTail].seqNum = nextSeqNum++;
-    txQueue[txTail].retryCount = 0;
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::ConfigPacket cfg;
+    cfg.paramID = paramID;
+    cfg.value = value;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = sizeof(SP::ConfigPacket);
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = SP::MSG_CONFIG_SET;
+
+    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cfg, sizeof(SP::ConfigPacket));
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket));
+    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket) + 2;
+
     txTail = nextTail;
+    return true;
   }
+  return false;
 }
 
 void processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
@@ -2452,26 +2499,7 @@ void processTxQueue() {
     if (txHead != txTail) {
       TxJob* job = &txQueue[txHead];
 
-      uint8_t txBuffer[64];
-      SP::FrameHeader* header = (SP::FrameHeader*)txBuffer;
-
-      uint16_t payloadLen = 0;
-      if (job->msgID == SP::MSG_COMMAND) payloadLen = sizeof(SP::CommandPacket);
-      else if (job->msgID == SP::MSG_CONFIG_SET) payloadLen = sizeof(SP::ConfigPacket);
-
-      header->sync1 = SP::PROTOCOL_SYNC_1;
-      header->sync2 = SP::PROTOCOL_SYNC_2;
-      header->length = payloadLen;
-      header->targetID = job->targetID;
-      header->seq = job->seqNum;
-      header->msgID = job->msgID;
-
-      if (payloadLen > 0)
-        memcpy(txBuffer + sizeof(SP::FrameHeader), &job->payload, payloadLen);
-
-      SP::ProtocolUtils::appendCRC(txBuffer, sizeof(SP::FrameHeader) + payloadLen);
-
-      Serial2.write(txBuffer, sizeof(SP::FrameHeader) + payloadLen + 2);
+      Serial2.write(job->txBuffer, job->txLength);
 
       job->lastTxTime = millis();
       txState = TxState::WAITING_ACK;
@@ -2482,28 +2510,7 @@ void processTxQueue() {
       if (millis() - job->lastTxTime > 500) {
         if (job->retryCount < 3) {
           job->retryCount++;
-
-          uint8_t txBuffer[64];
-          SP::FrameHeader* header = (SP::FrameHeader*)txBuffer;
-
-          uint16_t payloadLen = 0;
-          if (job->msgID == SP::MSG_COMMAND) payloadLen = sizeof(SP::CommandPacket);
-          else if (job->msgID == SP::MSG_CONFIG_SET) payloadLen = sizeof(SP::ConfigPacket);
-
-          header->sync1 = SP::PROTOCOL_SYNC_1;
-          header->sync2 = SP::PROTOCOL_SYNC_2;
-          header->length = payloadLen;
-          header->targetID = job->targetID;
-          header->seq = job->seqNum;
-          header->msgID = job->msgID;
-
-          if (payloadLen > 0)
-            memcpy(txBuffer + sizeof(SP::FrameHeader), &job->payload, payloadLen);
-
-          SP::ProtocolUtils::appendCRC(txBuffer, sizeof(SP::FrameHeader) + payloadLen);
-
-          Serial2.write(txBuffer, sizeof(SP::FrameHeader) + payloadLen + 2);
-
+          Serial2.write(job->txBuffer, job->txLength);
           job->lastTxTime = millis();
         } else {
           txState = TxState::TIMEOUT_ERROR;
