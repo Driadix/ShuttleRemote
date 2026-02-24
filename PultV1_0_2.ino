@@ -34,7 +34,8 @@ TxState txState = TxState::IDLE;
 SP::ProtocolParser parser;
 SP::TelemetryPacket cachedTelemetry;
 SP::SensorPacket cachedSensors;
-bool isDisplayDirty = false;
+bool isDisplayDirty = true;
+uint32_t lastDisplayUpdate = 0;
 bool isOtaUpdating = false;
 uint8_t nextSeqNum = 0;
 bool showQueueFull = false;
@@ -169,7 +170,7 @@ bool isUpdateStarted = false;
 int mpr = 0;
 int newMpr = 0;
 bool calibr = false;
-uint8_t quant = 0;
+uint8_t inputQuant = 0;
 int8_t numquant1 = 0;
 int8_t numquant2 = 0;
 bool fifolifo = false;
@@ -180,7 +181,7 @@ String manualCommand = " ";
 String shuttnumst = "A1";
 String shuttnewnumst = "A1";
 bool dispactivate = 1;
-bool displayUpdate = true;
+bool displayUpdate = true; // Deprecated, will be removed
 uint8_t settDataIn[40];
 uint16_t SensorsData[14];
 uint8_t settDataMenu[3] = {
@@ -196,22 +197,6 @@ boolean SensorsDataTrig = false;
 boolean UpdateParam = false;
 uint32_t dist_stop_cv3 = 0;
 uint32_t upl_wait_time = 0;
-uint32_t enc_mm = 0;
-uint16_t sensor_channel_f = 0;
-uint16_t sensor_channel_r = 0;
-uint16_t sensor_channel_df = 0;
-uint16_t sensor_channel_dr = 0;
-uint16_t sensor_pallete_F = 0;
-uint16_t sensor_pallete_R = 0;
-uint16_t sensor_pallete_DF = 0;
-uint16_t sensor_pallete_DR = 0;
-uint8_t DATCHIK_F1 = 0;
-uint8_t DATCHIK_F2 = 0;
-uint8_t DATCHIK_R1 = 0;
-uint8_t DATCHIK_R2 = 0;
-
-uint16_t sens_mm = 0;
-uint16_t stop_mm = 0;
 
 uint8_t ShuttGetsData[6];
 
@@ -230,16 +215,16 @@ long RSSI = 0;
 int bares = 0;
 uint8_t invMode;
 uint8_t speedCurr;
-int8_t shuttleBattery = -1;
-uint16_t errorcode;
-uint8_t warncode;
+// int8_t shuttleBattery = -1; // Removed
+// uint16_t errorcode; // Removed
+// uint8_t warncode; // Removed
 String tempcode;
 uint8_t countcharge = 0;  // count repeat request charge and status
 int16_t speedset = 10;
 int16_t newspeedset = 0;
 uint8_t palletconf = 0;       // get quant pallets
 uint8_t shuttbackaway = 100;  //отступ от края 800 паллета FIFO/LIFO
-uint8_t fifolifo_mode = 0;    //режим fifo/lifo
+// uint8_t fifolifo_mode = 0;    // Removed
 String palletconfst = "0";
 bool blink = 0;
 bool showarn = false;
@@ -293,7 +278,7 @@ const uint8_t shuttnumLength = sizeof(shuttnum) / sizeof(shuttnum[0]);
 const String num_no_yes[2] = { "НЕТ", "ДА" };
 
 uint8_t evacuatstatus = 0;
-uint8_t shuttleStatus = 0;
+// uint8_t shuttleStatus = 0; // Removed
 uint8_t lowbatt = 20;
 uint8_t newlowbatt = 100;
 uint8_t battindicat = 0;
@@ -544,20 +529,7 @@ void loop()
     }
   }
 
-  if (quant && millis() - uctimer > 500 && shuttleStatus != 13 && shuttleStatus != 12 && page != UNLOAD_PALLETE)
-  {
-    if (quant == 1)
-    {
-      cmdSend(CMD_UNLOAD);
-      shuttleStatus = 12;
-      quant = 0;
-    }
-    else
-    {
-      cmdSend(CMD_UNLOAD_PALLET_BY_NUMBER);
-      shuttleStatus = 13;
-    }
-  }
+  // Legacy quant logic removed
 
   if (displayActive)
   {
@@ -567,7 +539,7 @@ void loop()
       displayActive = true;
       warnblink = !warnblink;
       checkA0time = millis();
-      displayUpdate = true;
+      isDisplayDirty = true;
 
       if (cyclegetcharge > 60)
       {
@@ -579,7 +551,7 @@ void loop()
         cyclegetcharge = 0;
       }
       else if (
-          shuttleStatus == 11 && buttonActive == 0 &&
+          cachedTelemetry.shuttleStatus == 11 && buttonActive == 0 &&
           (cyclegetcharge == 20 || cyclegetcharge == 60 || cyclegetcharge == 100))
       {
         cmdSend(35);
@@ -616,16 +588,14 @@ void loop()
         if (page == MAIN)
         {
           if (countcharge == 0)
-            shuttleStatus = 18;
-          else if (countcharge == 2 && shuttleStatus == 18)
           {
-            shuttleStatus = 0;
-            shuttleBattery = -1;
-            errorcode = 0;
-            warncode = 0;
+             // shuttleStatus = 18;
+          }
+          else if (countcharge == 2)
+          {
             manualMode = false;
             newMpr = 0;
-            quant = 0;
+            inputQuant = 0;
             newshuttleLength = 0;
             newspeedset = 0;
             newlowbatt = 100;
@@ -657,19 +627,21 @@ void loop()
       if (hideshuttnum)
       {
         blinkshuttnum = !blinkshuttnum;
-        displayUpdate = true;
+        isDisplayDirty = true;
         blinkshuttnumInterval = millis();
       }
     }
     if (millis() - shuttnumOffInterval > 5000)
     {
-      displayUpdate = true;
+      isDisplayDirty = true;
       hideshuttnum = false;
       if (hideshuttnum) blinkshuttnum = 0;
     }
-    if (displayUpdate)
+    if (millis() - lastDisplayUpdate >= 100)
     {
-      u8g2.clearBuffer();
+      if (isDisplayDirty || showQueueFull)
+      {
+        u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_6x13_t_cyrillic);
       u8g2.setDrawColor(1);
       // displayOffInterval = 60000;
@@ -679,45 +651,36 @@ void loop()
         u8g2.setCursor(0, 10);
         u8g2.print("Заряд"); 
         u8g2.setCursor(35, 10);
-        if (shuttleBattery == 101)
+        if (cachedTelemetry.batteryCharge == 101)
           u8g2.print("[errb] ");
-        else if (shuttleStatus == 0 || shuttleBattery < 0)
+        else if (cachedTelemetry.shuttleStatus == 0)
           u8g2.print("[err] ");
         else
-          u8g2.print("[" + String(shuttleBattery) + "%] ");
+          u8g2.print("[" + String(cachedTelemetry.batteryCharge) + "%] ");
         u8g2.setCursor(75, 10);
-        if (fifolifo_mode)
+        if (cachedTelemetry.stateFlags & 0x20)
           u8g2.print("LIFO");
         else
           u8g2.print("FIFO");
         u8g2.setCursor(0, 25);
-        if (shuttleStatus == 13)
-          u8g2.print("Осталось выгрузить " + String(quant));
-        else if (quant && millis() - uctimer < 500)
-          u8g2.print("Выгрузка " + String(quant) + " паллет");
+        if (cachedTelemetry.shuttleStatus == 13)
+          u8g2.print("Осталось выгрузить " + String(cachedTelemetry.palleteCount));
         else
-          u8g2.print(shuttleStatusArray[shuttleStatus]);
+          u8g2.print(shuttleStatusArray[cachedTelemetry.shuttleStatus]);
 
         if (showQueueFull) {
             u8g2.setCursor(0, 40);
             u8g2.print("! QUEUE FULL !");
             if (millis() - queueFullTimer > 2000) showQueueFull = false;
-        } else if (warncode)
+        } else if (cachedTelemetry.errorCode)
         {
           u8g2.setCursor(0, 40);
-          u8g2.print("! " + WarnMsgArray[warncode] + " !");
-          if (warncode == 3 || warncode == 4 || warncode == 5)
-          {
-            quant = 0;
-            if (shuttleStatus != 2 && shuttleStatus != 3 && shuttleStatus != 4 && shuttleStatus != 6 &&
-                shuttleStatus != 11 && shuttleStatus != 12)
-            {
-              u8g2.setCursor(0, 25);
-              u8g2.print(" Возврат         ");
-            }
-          }
+          if (cachedTelemetry.errorCode < 21)
+             u8g2.print("! " + ErrorMsgArray[cachedTelemetry.errorCode] + " !");
+          else
+             u8g2.print("! ERR " + String(cachedTelemetry.errorCode) + " !");
         }
-        if ((warncode == 3 || warncode == 4 || warncode == 5) && millis() - warntimer > 10000) warncode = 0;
+        // Legacy warncode logic removed/replaced by errorCode display
 
         // u8g2.setCursor(100, 30);
         // u8g2.print(String(analogRead(A0)));
@@ -750,12 +713,10 @@ void loop()
           u8g2.setCursor(120, 30);
           u8g2.print("!");
         }
-        if (shuttleStatus == 13)
+        if (cachedTelemetry.shuttleStatus == 13)
         {
-          // u8g2.setCursor(60, 45);
-          // u8g2.print(String(quant));
           uint8_t j = 0;
-          for (uint8_t i = 0; i < quant; i++)
+          for (uint8_t i = 0; i < cachedTelemetry.palleteCount; i++)
           {
             if (j > 125) break;
             u8g2.drawBox(j, 32, 3, 12);
@@ -783,8 +744,8 @@ void loop()
           u8g2.print(".");
         }
 
-        if (shuttleStatus == 3 || shuttleStatus == 13 || shuttleStatus == 4 || shuttleStatus == 6)
-        {  //|| shuttleStatus == 11) {
+        if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6)
+        {
           static uint8_t x = 0;
           static uint8_t flagx = 0;
           u8g2.drawBox(x, 40, 28, 5);
@@ -806,7 +767,7 @@ void loop()
             flagx = 0;
           }
         }
-        else if (shuttleStatus == 2 || shuttleStatus == 12)
+        else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12)
         {
           static uint8_t x = 128;
           static uint8_t flagx = 1;
@@ -839,7 +800,7 @@ void loop()
           shuttbacka = "вкл ";
         else
           shuttbacka = "выкл";
-        if (fifolifo_mode)
+        if (cachedTelemetry.stateFlags & 0x20)
           fifolifo_modest = "LIFO ";
         else
           fifolifo_modest = "FIFO";
@@ -859,19 +820,12 @@ void loop()
         warrn = 0;
         for (uint8_t i = 0; i < 16; i++)
         {
-          if (bitRead(errorcode, i))
+          if (bitRead(cachedTelemetry.errorCode, i))
           {
             errn++;
           }
         }
-        // errn--;
-        for (uint8_t ii = 0; ii < 8; ii++)
-        {
-          if (bitRead(warncode, ii))
-          {
-            warrn++;
-          }
-        }
+        // Legacy warncode logic removed
         if (errn)
           strmenu[0] = " Ошибки: " + String(errn - 1);
         else
@@ -884,16 +838,16 @@ void loop()
       }
       else if (page == UNLOAD_PALLETE)
       {
-        quant = numquant1 * 10 + numquant2;
-        Serial.println("Quant 1 = " + String(quant));
+        inputQuant = numquant1 * 10 + numquant2;
+        Serial.println("Quant 1 = " + String(inputQuant));
         u8g2.setCursor(0, 5 + 1 * 11);
         u8g2.print(" Выгрузить N палет:");
         u8g2.setFont(u8g2_font_9x15_t_cyrillic);
         u8g2.setCursor(0, 12 + 2 * 11);
         if (numquant1 == 0)
-          u8g2.print(" 0" + String(quant));
+          u8g2.print(" 0" + String(inputQuant));
         else
-          u8g2.print(" " + String(quant));
+          u8g2.print(" " + String(inputQuant));
         uint8_t sline;
         if (cursorPos == 3)
           sline = 24;
@@ -904,14 +858,14 @@ void loop()
       else if (page == UNLOAD_PALLETE_SUCC)
       {
         u8g2.setCursor(0, 5 + 1 * 11);
-        u8g2.print(" Выгрузка " + String(quant) + " палет");
+        u8g2.print(" Выгрузка " + String(inputQuant) + " палет");
         u8g2.setCursor(0, 5 + 2 * 11);
         u8g2.print(" запущена");
       }
       else if (page == UNLOAD_PALLETE_FAIL)
       {
         u8g2.setCursor(0, 5 + 1 * 11);
-        u8g2.print(" Вы ввели " + String(quant));
+        u8g2.print(" Вы ввели " + String(inputQuant));
         u8g2.setCursor(0, 5 + 2 * 11);
         u8g2.print(" отмена");
       }
@@ -960,7 +914,7 @@ void loop()
         uint8_t epos = 1;
         for (ec = 1; ec < 16; ec++)
         {
-          if (bitRead(errorcode, ec))
+          if (bitRead(cachedTelemetry.errorCode, ec))
           {
             u8g2.setCursor(0, 5 + epos * 11);
             u8g2.print(String(" E#0" + String(ec) + " " + ErrorMsgArray[ec]));
@@ -992,7 +946,8 @@ void loop()
       }
       else if (page == WARNINGS_LOG)
       {
-        u8g2.print(String(WarnMsgArray[warncode]));
+        // u8g2.print(String(WarnMsgArray[warncode]));
+        u8g2.print("Logs moved to console");
       }
       else if (page == BATTERY_PROTECTION)
       {
@@ -1025,15 +980,15 @@ void loop()
         uint16_t sym_code = 0;
         u8g2.setFont(u8g2_font_6x13_t_cyrillic);
         u8g2.setCursor(2, 22);
-        u8g2.print("Forw. chnl dist: " + String(sensor_channel_f));  // Канальный сенсор расстояния вперед
+        u8g2.print("Forw. chnl dist: " + String(cachedSensors.distanceF));
         u8g2.setCursor(2, 32);
-        u8g2.print("Rvrs. chnl dist: " + String(sensor_channel_r));  // Канальный сенсор расстояния назад
+        u8g2.print("Rvrs. chnl dist: " + String(cachedSensors.distanceR));
         u8g2.setCursor(2, 42);
-        u8g2.print("Forw. plt dist:  " + String(sensor_pallete_F));  // Паллетный сенсор расстояния вперед
+        u8g2.print("Forw. plt dist:  " + String(cachedSensors.distancePltF));
         u8g2.setCursor(2, 52);
-        u8g2.print("Rvrs. plt dist:  " + String(sensor_pallete_R));  // Паллетный сенсор расстояния назад
+        u8g2.print("Rvrs. plt dist:  " + String(cachedSensors.distancePltR));
         u8g2.setCursor(2, 62);
-        u8g2.print("Encoder ang: " + String(enc_mm));  // Показания энкодера
+        u8g2.print("Encoder ang: " + String(cachedSensors.angle));
 
         u8g2.setFont(u8g2_font_unifont_t_symbols);
         static uint8_t count_timer = 0;
@@ -1047,26 +1002,7 @@ void loop()
       }
       else if (page == DEBUG_INFO && cursorPos == 2)
       {
-        uint16_t sym_code = 0;
-        u8g2.setFont(u8g2_font_6x13_t_cyrillic);
-        u8g2.setCursor(2, 22);
-        u8g2.print(String(DATCHIK_F1) + " DATCHIK_F1");  // датчик определения паллет вперед 1
-        u8g2.setCursor(2, 32);
-        u8g2.print(String(DATCHIK_F2) + " DATCHIK_F2");  // датчик определения паллет вперед 2
-        u8g2.setCursor(2, 42);
-        u8g2.print(String(DATCHIK_R1) + " DATCHIK_R1");  // датчик определения паллет назад 1
-        u8g2.setCursor(2, 52);
-        u8g2.print(String(DATCHIK_R2) + " DATCHIK_R2");  // датчик определения паллет назад 2
-
-        u8g2.setFont(u8g2_font_unifont_t_symbols);
-        static uint8_t count_timer = 0;
-        if (SensorsDataTrig) count_timer++;
-        if (count_timer > 3)
-        {
-          count_timer = 0;
-        }
-        sym_code = 0x25f7 - count_timer;
-        u8g2.drawGlyph(120, 10, sym_code);
+        // Legacy DATCHIK display removed
       }
 
       else if (page == SYSTEM_SETTINGS_WARN)
@@ -1221,17 +1157,19 @@ void loop()
         MenuOut();
       }
 
-      u8g2.sendBuffer();
+        u8g2.sendBuffer();
+        isDisplayDirty = false;
+      }
+      lastDisplayUpdate = millis();
+
       if (page == UNLOAD_PALLETE_SUCC || page == UNLOAD_PALLETE_FAIL || page == ACCESS_DENIED)
       {
         delay(1200);
         cmdSend(16);
         page = MAIN;
+        isDisplayDirty = true;
       }
     }
-    else
-      delay(50);
-    displayUpdate = false;
   }
   else
     digitalWrite(rfout0, HIGH);
@@ -1315,7 +1253,7 @@ void cmdSend(uint8_t numcmd)
       break;
     case CMD_UNLOAD_PALLET_BY_NUMBER:
       cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
-      cmd.arg1 = quant;
+      cmd.arg1 = inputQuant;
       if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 16:
@@ -1372,7 +1310,7 @@ void cmdSend(uint8_t numcmd)
       if (!queueConfigSet(SP::CFG_CHNL_OFFSET, chnloffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_FIFO_LIFO:
-      if (!queueConfigSet(SP::CFG_FIFO_LIFO, fifolifo_mode, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      // Handled directly in keypadEvent
       break;
     case 43:
       cmd.cmdType = SP::CMD_CALIBRATE;
@@ -1437,11 +1375,10 @@ void keypadEvent(KeypadEvent key)
           EEPROM.write(addr0, shuttleNumber);
           EEPROM.end();
           newMpr = 0;
-          quant = 0;
+          inputQuant = 0;
           newshuttleLength = 0;
           newspeedset = 0;
           newlowbatt = 100;
-          warncode = 0;
           newreverse = 2;
           waittime = 0;
           newwaittime = 0;
@@ -1489,11 +1426,10 @@ void keypadEvent(KeypadEvent key)
             EEPROM.write(addr0, shuttleNumber);
             EEPROM.end();
             newMpr = 0;
-            quant = 0;
+            inputQuant = 0;
             newshuttleLength = 0;
             newspeedset = 0;
             newlowbatt = 100;
-            warncode = 0;
             newreverse = 2;
             waittime = 0;
             newwaittime = 0;
@@ -1554,7 +1490,7 @@ void keypadEvent(KeypadEvent key)
       buttonActive = false;
       currentKey = ' ';
       buttonTimer = 0;
-      displayUpdate = true;
+      isDisplayDirty = true;
       if (displayActive && dispactivate)
       {
         // Buffer[0]=0;
@@ -1615,7 +1551,7 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == MENU && cursorPos == 6)
               {
-                quant = 0;
+                inputQuant = 0;
                 numquant1 = 0;
                 numquant2 = 0;
                 page = UNLOAD_PALLETE;
@@ -1668,14 +1604,13 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == UNLOAD_PALLETE)
               {
-                quant = numquant1 * 10 + numquant2;
-                if (quant > 0)
+                inputQuant = numquant1 * 10 + numquant2;
+                if (inputQuant > 0)
                 {
-                  if (shuttleStatus != 13)
-                  {
-                    shuttleStatus = 13;
-                    cmdSend(CMD_UNLOAD_PALLET_BY_NUMBER);
-                  }
+                   SP::CommandPacket cmd;
+                   cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
+                   cmd.arg1 = inputQuant;
+                   if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
                   page = UNLOAD_PALLETE_SUCC;
                 }
                 else
@@ -2284,8 +2219,8 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == MENU && cursorPos == 3)
             {  // режим fifo/lifo
-              fifolifo_mode = !fifolifo_mode;
-              cmdSend(CMD_FIFO_LIFO);
+              bool newMode = !((cachedTelemetry.stateFlags & 0x20) != 0);
+              queueConfigSet(SP::CFG_FIFO_LIFO, newMode ? 1 : 0, shuttleNumber);
             }
             else if (page == STATUS_PGG && cursorPos == 2)
             {
@@ -2307,25 +2242,20 @@ void keypadEvent(KeypadEvent key)
             }
             break;
           case 'C':
-            // if (longPressActive)
-            //  shuttleStatus = 7;else
-            //  shuttleStatus=2;
             if (page == MAIN)
             {
               if (longPressActive)
               {
                 cmdSend(CMD_CONT_UNLOAD);
-                // shuttleStatus=5;
               }
-              else if (shuttleStatus == 10)
+              else if (cachedTelemetry.shuttleStatus == 10)
               {
-                quant++;
+                // inputQuant++; // Legacy behavior?
                 uctimer = millis();
               }
             }
             break;
           case '6':
-            //  shuttleStatus=0;
             if (!manualMode && longPressActive)
             {
               cmdSend(CMD_MANUAL);
@@ -2544,28 +2474,19 @@ void handleRx() {
 
         case SP::MSG_HEARTBEAT:
           {
-            SP::TelemetryPacket* packet = (SP::TelemetryPacket*)payload;
-            memcpy(&cachedTelemetry, packet, sizeof(SP::TelemetryPacket));
-            shuttleStatus = cachedTelemetry.shuttleStatus;
-            shuttleBattery = cachedTelemetry.batteryCharge;
-            errorcode = cachedTelemetry.errorCode;
-            quant = cachedTelemetry.palleteCount;
-            // Map other fields if needed
-            isDisplayDirty = true;
+            if (memcmp(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket)) != 0) {
+                memcpy(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket));
+                isDisplayDirty = true;
+            }
           }
           break;
 
         case SP::MSG_SENSORS:
           {
-            SP::SensorPacket* packet = (SP::SensorPacket*)payload;
-            memcpy(&cachedSensors, packet, sizeof(SP::SensorPacket));
-            sensor_channel_f = cachedSensors.distanceF;
-            sensor_channel_r = cachedSensors.distanceR;
-            sensor_pallete_F = cachedSensors.distancePltF;
-            sensor_pallete_R = cachedSensors.distancePltR;
-            enc_mm = cachedSensors.angle;
-            // Map other fields if needed
-            isDisplayDirty = true;
+            if (memcmp(&cachedSensors, payload, sizeof(SP::SensorPacket)) != 0) {
+                memcpy(&cachedSensors, payload, sizeof(SP::SensorPacket));
+                isDisplayDirty = true;
+            }
           }
           break;
 
