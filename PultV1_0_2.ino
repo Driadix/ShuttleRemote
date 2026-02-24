@@ -256,12 +256,12 @@ const String ErrorMsgArray[21] = { "Нет ошибок",
                                    "" };
 const String WarnMsgArray[6] = { "Нет предупреждений", "Шаттл не в канале", "Заряд < 20%",
                                  "Поддон не найден",   "Поддон поврежден",  "Нет места" };
-const String shuttnum[26] = { "A1",  "B2",  "C3",  "D4",  "E5",  "F6",  "G7",  "H8",  "I9",  "J10", "K11", "L12", "M13",
-                              "N14", "O15", "P16", "Q17", "R18", "S19", "T20", "U21", "V22", "W23", "X24", "Y25", "Z26" };
+const String shuttnum[32] = { "A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8", "I9", "10", "11", "12", "13", "14", "15", "16",
+                              "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32" };
+const uint8_t shuttnumLength = sizeof(shuttnum) / sizeof(shuttnum[0]);
 
 const String num_no_yes[2] = { "НЕТ", "ДА" };
-// const String shutt_allbuttons[8] = { "upl", "dow", "com", "mmd", "dmd", "sgh", "saw", "cof" };  //upload, download,
-// compact, manual mode, demo mode, shutt go home, step away, compact forw
+
 uint8_t evacuatstatus = 0;
 uint8_t shuttleStatus = 0;
 uint8_t lowbatt = 20;
@@ -321,6 +321,7 @@ void BatteryLevel(uint8_t percent);
 void MenuOut();
 #pragma endregion
 
+#pragma region setup
 void setup()
 {
   page = MAIN;
@@ -346,8 +347,6 @@ void setup()
   u8g2.setCursor(10, 30);
   u8g2.print("М И К Р О Н");
   u8g2.setFont(u8g2_font_4x6_t_cyrillic);
-  // u8g2.setCursor(0, 60);
-  // u8g2.print("@ 2019 ОНТ All Rights Reserved");
   u8g2.drawFrame(3, 7, 125, 33);
   u8g2.sendBuffer();
   delay(100);
@@ -356,8 +355,8 @@ void setup()
   EEPROM.begin(10);
   uint8_t shtnum = EEPROM.read(addr0);
   pass_menu = EEPROM.read(addr0 + 1);
-  if (pass_menu != 0 && pass_menu != 1) pass_menu = 0;
-  if (shtnum == 0 || shtnum > 26)
+  if (pass_menu != 0 && pass_menu != 1) pass_menu = 1;
+  if (shtnum == 0 || shtnum > shuttnumLength)
   {
     shtnum = 1;
     EEPROM.write(addr0, shuttleNumber);
@@ -378,8 +377,6 @@ void setup()
     }
   }
   EEPROM.end();
-
-  // shuttleNumber=EEPROM.read(addr0)+1;
 
   delay(50);
   kpd.addEventListener(keypadEvent);
@@ -435,6 +432,7 @@ void setup()
   }
   digitalWrite(rfout0, LOW);
 }
+#pragma endregion
 
 bool isFabala = true;
 
@@ -502,7 +500,7 @@ void loop()
     }
   }
 
-  if (quant && millis() - uctimer > 500 && shuttleStatus != 13 && shuttleStatus != 12)
+  if (quant && millis() - uctimer > 500 && shuttleStatus != 13 && shuttleStatus != 12 && page != UNLOAD_PALLETE)
   {
     if (quant == 1)
     {
@@ -635,7 +633,7 @@ void loop()
       {
         // displayOffInterval = 25000;
         u8g2.setCursor(0, 10);
-        u8g2.print("Заряд");  //["+String(shuttleNumber)+"]");
+        u8g2.print("Заряд"); 
         u8g2.setCursor(35, 10);
         if (shuttleBattery == 101)
           u8g2.print("[errb] ");
@@ -881,7 +879,7 @@ void loop()
         }
         strmenu[0] = " МПР: " + String(mpr) + " mm";
         strmenu[1] = " Инверсия движения:" + txtMode;
-        strmenu[2] = " Макс. скорость: " + String(speedset);
+        strmenu[2] = " Макс. скорость: " + String(speedset / 10);
         strmenu[3] = " Изменить N уст-ва";
         strmenu[4] = " Защита батареи: " + String(lowbatt) + "%";
         strmenu[5] = " Инж. меню";
@@ -891,7 +889,6 @@ void loop()
       }
       else if (page == CHANGE_SHUTTLE_NUM)
       {
-        // quant = numquant1 * 10 + numquant2;
         u8g2.setCursor(0, 5 + 1 * 11);
         u8g2.print(" Введите");
         u8g2.setCursor(0, 5 + 2 * 11);
@@ -1190,6 +1187,7 @@ void loop()
   else
     digitalWrite(rfout0, HIGH);
 }
+
 #pragma region Функции...
 void cmdSend(uint8_t numcmd)
 {
@@ -1205,15 +1203,6 @@ void cmdSend(uint8_t numcmd)
       Serial2.print(shuttnumst + "dStop_");
       delay(50);
       Serial2.print(shuttnumst + "dStop_");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dStop_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-      if (inputString != shuttnumst + "dStop_!")
-      {
-        Serial2.print(shuttnumst + "dStop_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dStop_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-        if (inputString != shuttnumst + "dStop_!") Serial2.print(shuttnumst + "dStop_");
-      }*/
       break;
     case CMD_STOP_MANUAL:  //отключение ручного режима
       manualMode = false;
@@ -1376,7 +1365,7 @@ void cmdSend(uint8_t numcmd)
       Serial2.print(shuttnumst + "dReOff");  // invert_mode
       break;
     case CMD_INTER_PALL_DISTANCE:  // выставление МПР
-      if (mpr < 100)
+      if (mpr < 50)
         Serial2.print(shuttnumst + "dDm0" + String(mpr));
       else
         Serial2.print(shuttnumst + "dDm" + String(mpr));
@@ -1407,12 +1396,7 @@ void cmdSend(uint8_t numcmd)
       Serial2.print(shuttnumst + "dHome_");
       break;
     case CMD_SET_SPEED:  // установка скорости
-      if (speedset < 10)
-        Serial2.print(shuttnumst + "dSp00" + String(speedset));
-      else if (speedset < 100)
-        Serial2.print(shuttnumst + "dSp0" + String(speedset));
-      else
-        Serial2.print(shuttnumst + "dSp" + String(speedset));
+      Serial2.print(shuttnumst + "dSp0" + String((uint8_t)(speedset / 10.41)));
       break;
     case CMD_SET_LENGTH:  // установка длинны шаттла
       if (shuttleLength == 800)
@@ -1598,6 +1582,7 @@ void cmdSend(uint8_t numcmd)
       break;*/
   }
 }
+
 //заряд
 int getVoltage()
 {
@@ -1623,14 +1608,12 @@ void keypadEvent(KeypadEvent key)
   {
     case PRESSED:
 
-      // beep1KHz();
       currentKey = key;
       buttonTimer = millis();
       displayOffTimer = millis();
       mpingtime = millis();
       buttonActive = true;
       displayOffInterval = 900000;
-      // Serial2.println(key);
 
       if (displayActive)
       {
@@ -1671,13 +1654,10 @@ void keypadEvent(KeypadEvent key)
             case '9': cmdSend(CMD_PLATFORM_UNLIFTING); break;
             case 'E': cmdSend(CMD_PLATFORM_LIFTING); break;
             case '1':
-              // shuttleNumber=1;
               break;
             case '2':
-              // shuttleNumber=2;
               break;
             case '3':
-              // shuttleNumber=3;
               break;
           }
         }
@@ -1685,7 +1665,7 @@ void keypadEvent(KeypadEvent key)
         {
           if (key == 'A')
           {
-            if (shuttleTempNum < 26) shuttleTempNum++;
+            if (shuttleTempNum < shuttnumLength) shuttleTempNum++;
           }
           else if (key == 'B')
           {
@@ -1804,34 +1784,16 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == PACKING_WARN && cursorPos == 2)
               {
-                if (pass_menu == 0)
-                {
-                  cursorPos = 1;
-                  page = PACKING_CONTROL;
-                }
-                else
-                {
-                  cursorPos = 1;
-                  pageAfterPin = PACKING_CONTROL;
-                  page = MENU_PROTECTION;
-                }
+                cursorPos = 1;
+                page = PACKING_CONTROL;
               }
               else if (page == MENU && cursorPos == 4)
               {
-                if (pass_menu == 0)
-                {
-                  page = OPTIONS;
-                  cursorPos = 1;
-                  cmdSend(CMD_GET_PARAM);
-                  countcharge = 0;
-                  getchargetime = millis();
-                }
-                else
-                {
-                  pageAfterPin = OPTIONS;
-                  cursorPos = 1;
-                  page = MENU_PROTECTION;
-                }
+                page = OPTIONS;
+                cursorPos = 1;
+                cmdSend(CMD_GET_PARAM);
+                countcharge = 0;
+                getchargetime = millis();
               }
               else if (page == MENU && cursorPos == 7)
               {
@@ -1844,6 +1806,9 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == MENU && cursorPos == 6)
               {
+                quant = 0;
+                numquant1 = 0;
+                numquant2 = 0;
                 page = UNLOAD_PALLETE;
                 cursorPos = 1;
               }
@@ -1870,9 +1835,22 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == OPTIONS && cursorPos == 6)
               {
-                page = ENGINEERING_MENU;
-                cursorPos = 1;
-                cmdSend(42);
+                if (pass_menu == 0)
+                {
+                  page = ENGINEERING_MENU;
+                  cursorPos = 1;
+                  cmdSend(42);
+                }
+                else
+                {
+                  pageAfterPin = ENGINEERING_MENU;
+                  for (int8_t i = 0; i < 4; i++)
+                  {
+                    temp_pin[i] = 0;
+                  }
+                  cursorPos = 1;
+                  page = MENU_PROTECTION;
+                }
               }
               else if (page == OPTIONS && cursorPos == 8)
               {
@@ -1881,6 +1859,7 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == UNLOAD_PALLETE)
               {
+                quant = numquant1 * 10 + numquant2;
                 if (quant > 0)
                 {
                   if (shuttleStatus != 13)
@@ -2367,10 +2346,12 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == OPTIONS && cursorPos == 3)
             {
-              speedset--;
-              if (speedset < 3) speedset = 3;
-              newspeedset = speedset;
-              cmdSend(CMD_SET_SPEED);
+              speedset -= 50;
+              if (speedset < 200) speedset = 200;
+              if (speedset != newspeedset) {
+                newspeedset = speedset;
+                cmdSend(CMD_SET_SPEED);
+              }
             }
             else if (page == ENGINEERING_MENU && cursorPos == 7)
             {
@@ -2462,10 +2443,16 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == OPTIONS && cursorPos == 3)
             {
-              speedset++;
-              if (speedset > 100) speedset = 100;
-              newspeedset = speedset;
-              cmdSend(CMD_SET_SPEED);
+              speedset += 50;
+              if (speedset > 1000) speedset = 1000;
+              if (speedset != newspeedset) {
+                newspeedset = speedset;
+                cmdSend(CMD_SET_SPEED);
+              }
+            } else if (page == UNLOAD_PALLETE)
+            {
+              cursorPos++;
+              if (cursorPos > 2) cursorPos = 1;
             }
             else if (page == ENGINEERING_MENU && cursorPos == 7)
             {
@@ -2576,12 +2563,12 @@ void keypadEvent(KeypadEvent key)
             shuttnumOffInterval = millis();
             if (key == 'A')
             {
-              if (!hideshuttnum && shuttleNumber <= 26)
+              if (!hideshuttnum && shuttleNumber <= shuttnumLength)
               {
                 shuttleTempNum = shuttleNumber + 1;
-                if (shuttleTempNum > 26) shuttleTempNum = 26;
+                if (shuttleTempNum > shuttnumLength) shuttleTempNum = shuttnumLength;
               }
-              else if (shuttleTempNum < 26)
+              else if (shuttleTempNum < shuttnumLength)
                 shuttleTempNum++;
               Tempshutnum = shuttleTempNum;
             }
@@ -2628,12 +2615,13 @@ void PinSetpcf()
   }
 }
 void MarkTime() { Elapsed = millis(); }
+
 void ShowTime()
 {
   // Calcs the time
   Elapsed = millis() - Elapsed;
 }
-// String Serial2in = "";
+
 void GetSerial2Data()
 {
   uint8_t count_inbyte = 0;
@@ -2661,6 +2649,7 @@ void GetSerial2Data()
   Serial2in = inputString;
   if (stringComplete)
   {
+    //Serial.println(inputString);
     String TempStr = inputString.substring(0, 2);
     if (TempStr == shuttnumst)
     {
@@ -2789,7 +2778,8 @@ void GetSerial2Data()
         int TempInt = TempStr.toInt();
         if (TempInt >= 0 && TempInt <= 100)
         {
-          speedset = TempInt;
+          speedset = TempInt * 10.41;
+          speedset = ((speedset + 25) / 50) * 50;
           if (newspeedset != 0 && newspeedset != speedset)
           {
             speedset = newspeedset;
