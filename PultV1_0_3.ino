@@ -9,9 +9,11 @@
 #include <driver/rtc_io.h>
 //#include <esp_deep_sleep.h>
 #include "sleep_m.h"
+namespace SP {
 #include "ShuttleProtocol.h"
+}
 
-ProtocolParser parserRadio;
+SP::ProtocolParser parserRadio;
 
 struct ShuttleStateCache {
     uint8_t battery;
@@ -334,7 +336,8 @@ void SetSleep();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
 void sendBinaryRequest(uint8_t msgID, uint8_t targetID);
-void processShuttlePacket(FrameHeader* header, uint8_t* payload);
+void sendBinaryCommand(uint8_t cmdType, uint32_t arg1 = 0, uint32_t arg2 = 0);
+void processShuttlePacket(SP::FrameHeader* header, uint8_t* payload);
 void pollSerial();
 #pragma endregion
 
@@ -397,7 +400,6 @@ void setup()
 
   delay(50);
   kpd.addEventListener(keypadEvent);
-  cmdSend(16);
   countcharge = 0;
   getchargetime = millis();
   displayOffInterval = 25000;
@@ -542,22 +544,6 @@ void loop()
       checkA0time = millis();
       displayUpdate = true;
 
-      if (cyclegetcharge > 60)
-      {
-        if (buttonActive == 0)
-        {
-          countcharge = 0;
-          getchargetime = millis();
-        }
-        cyclegetcharge = 0;
-      }
-      else if (
-          shuttleStatus == 11 && buttonActive == 0 &&
-          (cyclegetcharge == 20 || cyclegetcharge == 60 || cyclegetcharge == 100))
-      {
-        cmdSend(35);
-      }
-      cyclegetcharge++;
       if (!digitalRead(Charge_Pin))
       {
         chargercount = 8;
@@ -588,12 +574,12 @@ void loop()
         lastPollTime = millis();
 
         // Context-aware request mapping
-        uint8_t requestID = MSG_REQ_HEARTBEAT; // Default for MAIN page
+        uint8_t requestID = SP::MSG_REQ_HEARTBEAT; // Default for MAIN page
 
         if (page == DEBUG_INFO || page == DIAGNOSTICS) {
-            requestID = MSG_REQ_SENSORS;
+            requestID = SP::MSG_REQ_SENSORS;
         } else if (page == STATS) {
-            requestID = MSG_REQ_STATS;
+            requestID = SP::MSG_REQ_STATS;
         }
 
         sendBinaryRequest(requestID, shuttleNumber);
@@ -1190,24 +1176,20 @@ void cmdSend(uint8_t numcmd)
     case CMD_STOP:  //стоп
       manualMode = false;
       manualCommand = " ";
-      Serial2.print(shuttnumst + "dStop_");
-      delay(50);
-      Serial2.print(shuttnumst + "dStop_");
+      sendBinaryCommand(SP::CMD_STOP);
       break;
     case CMD_STOP_MANUAL:  //отключение ручного режима
       manualMode = false;
       manualCommand = " ";
-      Serial2.print(shuttnumst + "dStopM");
-      delay(50);
-      Serial2.print(shuttnumst + "dStopM");
+      sendBinaryCommand(SP::CMD_STOP_MANUAL);
       break;
     case CMD_LOAD:  //загрузка
       manualMode = false;
-      Serial2.print(shuttnumst + "dLoad_");
+      sendBinaryCommand(SP::CMD_LOAD);
       break;
     case CMD_UNLOAD:  //выгрузка
       manualMode = false;
-      Serial2.print(shuttnumst + "dUnld_");
+      sendBinaryCommand(SP::CMD_UNLOAD);
       break;
     case CMD_CONT_LOAD:  //прод.загрузка
       manualMode = false;
@@ -1223,30 +1205,11 @@ void cmdSend(uint8_t numcmd)
       break;
     case CMD_PLATFORM_LIFTING:  //подъем палатформы
       manualCommand = "/\\";
-      Serial2.print(shuttnumst + "dUp___");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dUp___!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-      if (inputString != shuttnumst + "dUp___!")
-      {
-        Serial2.print(shuttnumst + "dUp___");
-        cnt = millis();
-        while (inputString != shuttnumst + "dUp___!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-        if (inputString != shuttnumst + "dUp___!") Serial2.print(shuttnumst + "dUp___");
-      cnt = millis();
-      }*/
+      sendBinaryCommand(SP::CMD_LIFT_UP);
       break;
     case CMD_PLATFORM_UNLIFTING:  //опускание платформы
       manualCommand = "\\/";
-      Serial2.print(shuttnumst + "dDown_");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dDown_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-      if (inputString != shuttnumst + "dDown_!")
-      {
-        Serial2.print(shuttnumst + "dDown_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dDown_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-        if (inputString != shuttnumst + "dDown_!") Serial2.print(shuttnumst + "dDown_");
-      }*/
+      sendBinaryCommand(SP::CMD_LIFT_DOWN);
       break;
     case CMD_MOVEMENT_LEFT:  // движение влево
       manualCommand = "<<";
@@ -1479,7 +1442,6 @@ void keypadEvent(KeypadEvent key)
           newchnloffset = 120;
           delay(300);
           shuttnumst = shuttnum[shuttleNumber - 1];
-          cmdSend(16);
           hideshuttnum = 0;
         }
         if (page == MAIN)
@@ -1531,7 +1493,6 @@ void keypadEvent(KeypadEvent key)
             newchnloffset = 120;
             delay(300);
             // cmdStatus();
-            cmdSend(16);
             page = MAIN;  // toggle menu mode
             cursorPos = 1;
           }
@@ -1564,7 +1525,6 @@ void keypadEvent(KeypadEvent key)
             isFabala = true;
             delay(300);
             // cmdStatus();
-            cmdSend(16);
             page = MAIN;  // toggle menu mode
             cursorPos = 1;
           }
@@ -1572,7 +1532,6 @@ void keypadEvent(KeypadEvent key)
       }
       else
       {
-        cmdSend(16);
         countcharge = 0;
         getchargetime = millis();
       }
@@ -1600,7 +1559,6 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == MAIN)
             {
-              cmdSend(16);
               countcharge = 0;
               getchargetime = millis();
             }
@@ -1973,7 +1931,6 @@ void keypadEvent(KeypadEvent key)
                 page = ENGINEERING_MENU;
               else
                 page = MAIN;
-              cmdSend(16);
               countcharge = 0;
               getchargetime = millis();
             }
@@ -2552,8 +2509,8 @@ void MenuOut()
 #pragma endregion
 
 void sendBinaryRequest(uint8_t msgID, uint8_t targetID) {
-    uint8_t buffer[sizeof(FrameHeader) + 2]; // Header + CRC (no payload for requests usually)
-    FrameHeader* header = (FrameHeader*)buffer;
+    uint8_t buffer[sizeof(SP::FrameHeader) + 2]; // Header + CRC (no payload for requests usually)
+    SP::FrameHeader* header = (SP::FrameHeader*)buffer;
 
     header->sync1 = PROTOCOL_SYNC_1;
     header->sync2 = PROTOCOL_SYNC_2;
@@ -2562,16 +2519,38 @@ void sendBinaryRequest(uint8_t msgID, uint8_t targetID) {
     header->seq = protocolSeq++;
     header->msgID = msgID;
 
-    ProtocolUtils::appendCRC(buffer, sizeof(FrameHeader));
+    SP::ProtocolUtils::appendCRC(buffer, sizeof(SP::FrameHeader));
     Serial2.write(buffer, sizeof(buffer));
 }
 
-void processShuttlePacket(FrameHeader* header, uint8_t* payload) {
+void sendBinaryCommand(uint8_t cmdType, uint32_t arg1 = 0, uint32_t arg2 = 0) {
+    uint8_t txBuffer[sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket) + 2];
+
+    SP::FrameHeader* header = (SP::FrameHeader*)txBuffer;
+    header->sync1 = PROTOCOL_SYNC_1;
+    header->sync2 = PROTOCOL_SYNC_2;
+    header->length = sizeof(SP::CommandPacket);
+    header->targetID = shuttleNumber;
+    header->seq = protocolSeq++;
+    header->msgID = SP::MSG_COMMAND;
+
+    SP::CommandPacket* cmd = (SP::CommandPacket*)(txBuffer + sizeof(SP::FrameHeader));
+    cmd->cmdType = cmdType;
+    cmd->arg1 = arg1;
+    cmd->arg2 = arg2;
+
+    uint16_t totalLenToCRC = sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket);
+    SP::ProtocolUtils::appendCRC(txBuffer, totalLenToCRC);
+
+    Serial2.write(txBuffer, totalLenToCRC + 2);
+}
+
+void processShuttlePacket(SP::FrameHeader* header, uint8_t* payload) {
     // Only process data from the shuttle we are currently controlling
     if (header->targetID != shuttleNumber) return;
 
-    if (header->msgID == MSG_HEARTBEAT) {
-        TelemetryPacket* tel = (TelemetryPacket*)payload;
+    if (header->msgID == SP::MSG_HEARTBEAT) {
+        SP::TelemetryPacket* tel = (SP::TelemetryPacket*)payload;
         activeShuttleState.battery = tel->batteryCharge;
         activeShuttleState.status = tel->shuttleStatus;
         activeShuttleState.errorCode = tel->errorCode;
@@ -2590,12 +2569,12 @@ void processShuttlePacket(FrameHeader* header, uint8_t* payload) {
 
         // If status is "Unloading by number" (13), update quant if needed or handled elsewhere
         // Note: The original code had specific logic for quant reset on status 10
-        if (shuttleStatus == 10 && shuttleStatus == 13) quant = 0;
+        if (shuttleStatus == 10 || shuttleStatus == 13) quant = 0;
 
         displayUpdate = true;
     }
-    else if (header->msgID == MSG_SENSORS) {
-        SensorPacket* sens = (SensorPacket*)payload;
+    else if (header->msgID == SP::MSG_SENSORS) {
+        SP::SensorPacket* sens = (SP::SensorPacket*)payload;
         activeShuttleState.distanceF = sens->distanceF;
         activeShuttleState.distanceR = sens->distanceR;
 
@@ -2618,10 +2597,10 @@ void processShuttlePacket(FrameHeader* header, uint8_t* payload) {
 
 void pollSerial() {
     while (Serial2.available()) {
-        FrameHeader* header = parserRadio.feed(Serial2.read());
+        SP::FrameHeader* header = parserRadio.feed(Serial2.read());
         if (header) {
             // We have a complete, CRC-verified packet!
-            processShuttlePacket(header, (uint8_t*)header + sizeof(FrameHeader));
+            processShuttlePacket(header, (uint8_t*)header + sizeof(SP::FrameHeader));
         }
     }
 }
