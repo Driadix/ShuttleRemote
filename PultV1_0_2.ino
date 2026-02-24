@@ -46,6 +46,10 @@ uint32_t queueFullTimer = 0;
 bool isManualMoving = false;
 uint32_t manualHeartbeatTimer = 0;
 
+uint32_t lastPollTime = 0;
+uint32_t currentPollInterval = 400;
+uint32_t lastSensorPollTime = 0;
+
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
 
@@ -190,7 +194,6 @@ const int LedWiFi_Pin = 22;
 String Serial2in = "";
 
 // uint8_t warncode; // Removed
-uint8_t countcharge = 0;  // count repeat request charge and status
 int16_t speedset = 10;
 int16_t newspeedset = 0;
 uint8_t shuttbackaway = 100;  //отступ от края 800 паллета FIFO/LIFO
@@ -262,7 +265,6 @@ unsigned long displayOffTimer = 0;
 unsigned long displayOffInterval = 25000;
 unsigned long longPressTime = 1000;
 unsigned long mpingtime = 0;
-unsigned long getchargetime = 0;
 unsigned long checkA0time = 0;
 unsigned long shuttnumOffInterval = 0;
 unsigned long blinkshuttnumInterval = 0;
@@ -273,7 +275,6 @@ int8_t minlevel = 31;
 uint8_t errn = 1;
 uint8_t warrn = 0;
 uint8_t prevpercent = 100;
-uint8_t cyclegetcharge = 0;
 String strmenu[20];
 Page pageAfterPin = MAIN;
 #pragma endregion
@@ -350,9 +351,6 @@ void setup()
 
   delay(50);
   kpd.addEventListener(keypadEvent);
-  cmdSend(16);
-  countcharge = 0;
-  getchargetime = millis();
   displayOffInterval = 25000;
   rtc_gpio_init((gpio_num_t)13);
   rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_OUTPUT_ONLY);
@@ -413,6 +411,37 @@ void loop()
   }
   handleRx();
   processTxQueue();
+
+  // --- Context-Aware Polling Engine ---
+  if (!isManualMoving && !isOtaUpdating)
+  {
+    // 1. Determine Polling Interval based on Active Page
+    if (page == MAIN) {
+        currentPollInterval = 400;      // Fast updates for main dashboard
+    } else if (page == DEBUG_INFO) {
+        currentPollInterval = 1500;     // Slow heartbeat, fast sensors below
+    } else {
+        currentPollInterval = 1500;     // Background keep-alive for other menus
+    }
+
+    // 2. Execute Heartbeat Polling
+    if (millis() - lastPollTime >= currentPollInterval) {
+        if (queueRequest(SP::MSG_REQ_HEARTBEAT, shuttleNumber)) {
+            lastPollTime = millis();
+        }
+    }
+
+    // 3. Execute Sensor Polling (Specific to DEBUG_INFO)
+    if (page == DEBUG_INFO) {
+        if (millis() - lastSensorPollTime >= 300) {
+             // Only queue if space is available to prevent choking the heartbeat
+             if (queueRequest(SP::MSG_REQ_SENSORS, shuttleNumber)) {
+                lastSensorPollTime = millis();
+             }
+        }
+    }
+  }
+
   // int Result, Status;
 
   String linkMode = " ";
@@ -473,22 +502,6 @@ void loop()
       checkA0time = millis();
       isDisplayDirty = true;
 
-      if (cyclegetcharge > 60)
-      {
-        if (buttonActive == 0)
-        {
-          countcharge = 0;
-          getchargetime = millis();
-        }
-        cyclegetcharge = 0;
-      }
-      else if (
-          cachedTelemetry.shuttleStatus == 11 && buttonActive == 0 &&
-          (cyclegetcharge == 20 || cyclegetcharge == 60 || cyclegetcharge == 100))
-      {
-        cmdSend(35);
-      }
-      cyclegetcharge++;
       if (!digitalRead(Charge_Pin))
       {
         chargercount = 8;
@@ -508,50 +521,6 @@ void loop()
         prevpercent = 100;
         battindicat += 25;
         if (battindicat > 100) battindicat = 0;
-      }
-      if (page == DEBUG_INFO && SensorsDataTrig) cmdSend(44);
-    }
-
-    if (millis() - getchargetime > 300)
-    {
-      uint8_t cc = 3;
-      if (countcharge < cc)
-      {
-        if (page == MAIN)
-        {
-          if (countcharge == 0)
-          {
-             // shuttleStatus = 18;
-          }
-          else if (countcharge == 2)
-          {
-            manualMode = false;
-            newMpr = 0;
-            inputQuant = 0;
-            newshuttleLength = 0;
-            newspeedset = 0;
-            newlowbatt = 100;
-            newreverse = 2;
-            waittime = 0;
-            newwaittime = 0;
-            mproffset = 0;
-            newmproffset = 120;
-            chnloffset = 0;
-            newchnloffset = 120;
-          }
-          cmdSend(16);
-        }
-        else if (page == MENU)
-          cmdSend(CMD_GET_MENU);  // cmdGetData();
-        else if (page == ERRORS)
-          cmdSend(CMD_GET_ERRORS);
-        else if (page == OPTIONS)
-          cmdSend(CMD_GET_PARAM);
-        else if (page == BATTERY_PROTECTION)
-          cmdSend(38);
-        // else if (page==11) cmdPalletConf();
-        countcharge++;
-        getchargetime = millis();
       }
     }
     if (millis() - blinkshuttnumInterval > 250)
@@ -1106,7 +1075,6 @@ void loop()
       if (page == UNLOAD_PALLETE_SUCC || page == UNLOAD_PALLETE_FAIL || page == ACCESS_DENIED)
       {
         delay(1200);
-        cmdSend(16);
         page = MAIN;
         isDisplayDirty = true;
       }
@@ -1327,7 +1295,6 @@ void keypadEvent(KeypadEvent key)
           newchnloffset = 120;
           delay(300);
           shuttnumst = shuttnum[shuttleNumber - 1];
-          cmdSend(16);
           hideshuttnum = 0;
         }
         if (page == MAIN)
@@ -1400,7 +1367,6 @@ void keypadEvent(KeypadEvent key)
             newchnloffset = 120;
             delay(300);
             // cmdStatus();
-            cmdSend(16);
             page = MAIN;  // toggle menu mode
             cursorPos = 1;
           }
@@ -1424,7 +1390,6 @@ void keypadEvent(KeypadEvent key)
             isFabala = true;
             delay(300);
             // cmdStatus();
-            cmdSend(16);
             page = MAIN;  // toggle menu mode
             cursorPos = 1;
           }
@@ -1432,9 +1397,6 @@ void keypadEvent(KeypadEvent key)
       }
       else
       {
-        cmdSend(16);
-        countcharge = 0;
-        getchargetime = millis();
       }
       break;
 
@@ -1460,9 +1422,6 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == MAIN)
             {
-              cmdSend(16);
-              countcharge = 0;
-              getchargetime = millis();
             }
             else
             {
@@ -1471,8 +1430,6 @@ void keypadEvent(KeypadEvent key)
                 page = ERRORS;
                 cursorPos = 1;
                 cmdSend(CMD_GET_ERRORS);
-                countcharge = 0;
-                getchargetime = millis();
               }
               else if (page == MENU && cursorPos == 2)
               {
@@ -1489,8 +1446,6 @@ void keypadEvent(KeypadEvent key)
                 page = OPTIONS;
                 cursorPos = 1;
                 cmdSend(CMD_GET_PARAM);
-                countcharge = 0;
-                getchargetime = millis();
               }
               else if (page == MENU && cursorPos == 7)
               {
@@ -1780,8 +1735,6 @@ void keypadEvent(KeypadEvent key)
               page = MENU;
               // cmdGetData();
               cmdSend(CMD_GET_MENU);
-              countcharge = 0;
-              getchargetime = millis();
             }
             else
             {
@@ -1796,9 +1749,6 @@ void keypadEvent(KeypadEvent key)
                 page = ENGINEERING_MENU;
               else
                 page = MAIN;
-              cmdSend(16);
-              countcharge = 0;
-              getchargetime = millis();
             }
             cursorPos = 1;
             break;
