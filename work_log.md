@@ -216,3 +216,36 @@ Implemented Task 6: Configuration Parameter Sync (Config GET/SET).
 - Implemented unit conversion for `CFG_MAX_SPEED` to maintain user-friendly 0-100% display.
 
 
+# Refactoring Work Log - Task 7 Final Dead Code Purge & Statistics Migration
+
+## Step 1: Purge the Orphaned Commands
+- **Objective:** Remove legacy logic and unused variables to reduce memory footprint.
+- **Actions Taken:**
+    - Verified removal of legacy `cmdSend` cases 32-38, 42, 46.
+    - Removed global `minlevel` variable and its legacy UI logic in `BATTERY_PROTECTION` page.
+    - Removed `cmdSend(37)` call in `keypadEvent`.
+    - Restored `cmdSend(39)` functionality by mapping it to `SP::CMD_SAVE_EEPROM` (13).
+
+## Step 2: Implement Stats Packet Handler
+- **Objective:** Cache and process incoming statistics data.
+- **Actions Taken:**
+    - Added global `SP::StatsPacket cachedStats = {0};`.
+    - Implemented `SP::MSG_STATS` case in `handleRx` with `memcmp` change detection and `isDisplayDirty` triggering.
+
+## Step 3 & 4: Update Polling & Refactor STATS Page UI
+- **Objective:** Request statistics on demand and display them.
+- **Actions Taken:**
+    - Updated `loop()` polling engine:
+        - Added `page == STATS` case with 1000ms polling interval.
+        - Implemented separate timer to queue `SP::MSG_REQ_STATS` when on Stats page.
+    - Refactored `STATS` page UI in `loop()`:
+        - Render "Odometer", "Load Cycles", "Crash Count", "Uptime" from `cachedStats`.
+    - Updated `ENGINEERING_MENU` navigation:
+        - Added "Статистика" item (index 10).
+        - Updated `keypadEvent` navigation logic to route to `STATS` page (16).
+        - Adjusted scroll limits for the new menu item count.
+
+## Verification
+- Confirmed removal of dead logic via code review/grep.
+- Verified `cmdSend` correctly handles the restored Save command.
+- Validated UI logic for Stats page and navigation.

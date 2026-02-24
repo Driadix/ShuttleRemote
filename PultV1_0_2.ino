@@ -36,6 +36,7 @@ Preferences prefs;
 SP::TelemetryPacket cachedTelemetry;
 int32_t cachedConfig[16] = {0};
 SP::SensorPacket cachedSensors;
+SP::StatsPacket cachedStats = {0};
 bool isDisplayDirty = true;
 uint32_t lastDisplayUpdate = 0;
 bool isOtaUpdating = false;
@@ -255,7 +256,6 @@ unsigned long shuttnumOffInterval = 0;
 unsigned long blinkshuttnumInterval = 0;
 
 unsigned long Elapsed;  // To calc the execution time
-int8_t minlevel = 31;
 
 uint8_t errn = 1;
 uint8_t warrn = 0;
@@ -403,8 +403,6 @@ void loop()
     // 1. Determine Polling Interval based on Active Page
     if (page == MAIN) {
         currentPollInterval = 400;      // Fast updates for main dashboard
-    } else if (page == DEBUG_INFO) {
-        currentPollInterval = 1500;     // Slow heartbeat, fast sensors below
     } else {
         currentPollInterval = 1500;     // Background keep-alive for other menus
     }
@@ -422,6 +420,15 @@ void loop()
              // Only queue if space is available to prevent choking the heartbeat
              if (queueRequest(SP::MSG_REQ_SENSORS, shuttleNumber)) {
                 lastSensorPollTime = millis();
+             }
+        }
+    }
+
+    if (page == STATS) {
+        static uint32_t lastStatsPollTime = 0;
+        if (millis() - lastStatsPollTime >= 2000) {
+             if (queueRequest(SP::MSG_REQ_STATS, shuttleNumber)) {
+                lastStatsPollTime = millis();
              }
         }
     }
@@ -840,9 +847,7 @@ void loop()
       }
       else if (page == BATTERY_PROTECTION)
       {
-        String templv = String(minlevel);
-        if (minlevel == 31) templv = "---";
-        strmenu[0] = " Мин. заряд: " + templv;
+        strmenu[0] = " Мин. заряд: [N/A]";
         strmenu[1] = " Назад";
         strmenu[2] = " ";
         strmenu[3] = " ";
@@ -861,7 +866,8 @@ void loop()
         strmenu[7] = " Время ож.загр: " + String(waittime);
         strmenu[8] = " Смещение МПР: " + String(mproffset);
         strmenu[9] = " Смещение канала: " + String(chnloffset);
-        strmenu[10] = " Назад";
+        strmenu[10] = " Статистика";
+        strmenu[11] = " Назад";
         MenuOut();
       }
       else if (page == DEBUG_INFO && cursorPos == 1)
@@ -898,6 +904,21 @@ void loop()
             if (i == 0) u8g2.print(String(state) + " DATCHIK_F1");
             else u8g2.print(String(state) + " SENSOR_" + String(i));
         }
+      }
+      else if (page == STATS)
+      {
+        u8g2.setFont(u8g2_font_6x13_t_cyrillic);
+        u8g2.setCursor(0, 10);
+        u8g2.print("Дистанция: " + String(cachedStats.totalDist / 1000) + "м");
+        u8g2.setCursor(0, 22);
+        u8g2.print("Циклов загр: " + String(cachedStats.loadCounter));
+        u8g2.setCursor(0, 34);
+        u8g2.print("Аварий: " + String(cachedStats.crashCount));
+        u8g2.setCursor(0, 46);
+        u8g2.print("Uptime: " + String(cachedStats.totalUptimeMinutes) + "мин");
+
+        u8g2.setCursor(0, 60);
+        u8g2.print("7 - Назад");
       }
 
       else if (page == SYSTEM_SETTINGS_WARN)
@@ -1536,6 +1557,11 @@ void keypadEvent(KeypadEvent key)
                 }
                 else if (cursorPos == 11)
                 {
+                   page = STATS;
+                   cursorPos = 1;
+                }
+                else if (cursorPos == 12)
+                {
                   page = OPTIONS;
                   cursorPos = 1;
                   // Request Options Params (returning from Eng Menu)
@@ -1747,7 +1773,7 @@ void keypadEvent(KeypadEvent key)
                 else if (page == OPTIONS)
                   cursorPos = 8;
                 else if (page == ENGINEERING_MENU)
-                  cursorPos = 11;
+                  cursorPos = 12;
                 else if (page == PACKING_CONTROL)
                   cursorPos = 3;
                 else if (page == BATTERY_PROTECTION)
@@ -1866,7 +1892,7 @@ void keypadEvent(KeypadEvent key)
             else if (page == ENGINEERING_MENU)
             {
               cursorPos++;
-              if (cursorPos > 11) cursorPos = 1;
+              if (cursorPos > 12) cursorPos = 1;
             }
             else if (page == UNLOAD_PALLETE)
             {
@@ -1986,9 +2012,7 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == BATTERY_PROTECTION && cursorPos == 1)
             {
-              minlevel -= 1;
-              if (minlevel < 1) minlevel = 0;
-              cmdSend(37);
+              // Legacy minlevel adjustment removed
             }
             else if (page == OPTIONS && cursorPos == 5)
             {
@@ -2097,9 +2121,7 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == BATTERY_PROTECTION && cursorPos == 1)
             {
-              minlevel += 1;
-              if (minlevel > 29) minlevel = 30;
-              cmdSend(37);
+              // Legacy minlevel adjustment removed
             }
             else if (page == MENU && cursorPos == 3)
             {  // режим fifo/lifo
@@ -2372,8 +2394,15 @@ void handleRx() {
           break;
 
         case SP::MSG_STATS:
-             // Map stats if needed
-             break;
+          {
+            if (header->length == sizeof(SP::StatsPacket)) {
+                if (memcmp(&cachedStats, payload, sizeof(SP::StatsPacket)) != 0) {
+                    memcpy(&cachedStats, payload, sizeof(SP::StatsPacket));
+                    isDisplayDirty = true;
+                }
+            }
+          }
+          break;
       }
     }
   }
