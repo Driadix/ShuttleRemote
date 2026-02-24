@@ -43,6 +43,9 @@ uint8_t nextSeqNum = 0;
 bool showQueueFull = false;
 uint32_t queueFullTimer = 0;
 
+bool isManualMoving = false;
+uint32_t manualHeartbeatTimer = 0;
+
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
 
@@ -499,12 +502,15 @@ void loop()
   {
     displayOffTimer = millis();
     if ((millis() - buttonTimer > longPressTime) && (longPressActive == false)) longPressActive = true;
-    if (manualMode && page == MAIN && (currentKey == '8' || currentKey == '0'))
+    if (isManualMoving)
     {
-      if (millis() - mpingtime > 150)
+      if (millis() - manualHeartbeatTimer >= 200)
       {
-        mpingtime = millis();
-        cmdSend(CMD_PING);
+        if ((txTail + 1) % TX_QUEUE_SIZE != txHead)
+        {
+          queueRequest(SP::MSG_REQ_HEARTBEAT, shuttleNumber);
+        }
+        manualHeartbeatTimer = millis();
       }
     }
   }
@@ -1382,8 +1388,32 @@ void keypadEvent(KeypadEvent key)
         {
           switch (key)
           {
-            case '8': cmdSend(CMD_MOVEMENT_RIGHT); break;
-            case '0': cmdSend(CMD_MOVEMENT_LEFT); break;
+            case '8':
+              if (!isManualMoving)
+              {
+                SP::CommandPacket cmd;
+                cmd.cmdType = SP::CMD_MOVE_RIGHT_MAN;
+                cmd.arg1 = 0;
+                cmd.arg2 = 0;
+                if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
+                manualCommand = ">>";
+                isManualMoving = true;
+                manualHeartbeatTimer = millis();
+              }
+              break;
+            case '0':
+              if (!isManualMoving)
+              {
+                SP::CommandPacket cmd;
+                cmd.cmdType = SP::CMD_MOVE_LEFT_MAN;
+                cmd.arg1 = 0;
+                cmd.arg2 = 0;
+                if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
+                manualCommand = "<<";
+                isManualMoving = true;
+                manualHeartbeatTimer = millis();
+              }
+              break;
             case '9': cmdSend(CMD_PLATFORM_UNLIFTING); break;
             case 'E': cmdSend(CMD_PLATFORM_LIFTING); break;
             case '1':
@@ -1827,7 +1857,17 @@ void keypadEvent(KeypadEvent key)
             cursorPos = 1;
             break;
           case '8':
-            if (!manualMode && longPressActive)
+            if (isManualMoving)
+            {
+              SP::CommandPacket cmd;
+              cmd.cmdType = SP::CMD_STOP_MANUAL;
+              cmd.arg1 = 0;
+              cmd.arg2 = 0;
+              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
+              manualCommand = " ";
+              isManualMoving = false;
+            }
+            else if (!manualMode && longPressActive)
             {
               cmdSend(CMD_MOVEMENT_RIGHT);
             }
@@ -1914,7 +1954,17 @@ void keypadEvent(KeypadEvent key)
 
             break;
           case '0':
-            if (!manualMode && longPressActive)
+            if (isManualMoving)
+            {
+              SP::CommandPacket cmd;
+              cmd.cmdType = SP::CMD_STOP_MANUAL;
+              cmd.arg1 = 0;
+              cmd.arg2 = 0;
+              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
+              manualCommand = " ";
+              isManualMoving = false;
+            }
+            else if (!manualMode && longPressActive)
             {
               cmdSend(CMD_MOVEMENT_LEFT);
             }

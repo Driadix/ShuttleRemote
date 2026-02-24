@@ -138,3 +138,38 @@
 - Verified by code reading: No references to `EEPROM` remain.
 - Validated logic flow: `initRadio` flushes buffer, ensuring ProtocolParser starts clean.
 - NVS writes are non-blocking (relative to old EEPROM commit) and use key-value storage.
+
+# Refactoring Work Log - Task 4 Dead-Man's Switch Implementation
+
+## Step 1: Define Manual State Trackers
+- **Objective:** Maintain non-blocking state for manual movement.
+- **Actions Taken:**
+    - Added global variables `isManualMoving` and `manualHeartbeatTimer` to `PultV1_0_2.ino`.
+
+## Step 2: Hook Keypad Events
+- **Objective:** Detect hold-to-move and release-to-stop.
+- **Actions Taken:**
+    - Modified `keypadEvent` `PRESSED` case for keys '8' and '0' (in MAIN page):
+        - Sends `CMD_MOVE_RIGHT_MAN` or `CMD_MOVE_LEFT_MAN` using direct `queueCommand`.
+        - Updates UI `manualCommand` string.
+        - Sets `isManualMoving = true` and initializes timer.
+    - Modified `keypadEvent` `RELEASED` case for keys '8' and '0':
+        - Checks `isManualMoving`.
+        - Sends `CMD_STOP_MANUAL` using direct `queueCommand`.
+        - Resets `isManualMoving = false` and clears UI string.
+        - Preserves legacy `manualMode` state (does not forcibly reset it).
+
+## Step 3: Implement Heartbeat Pump
+- **Objective:** Keep the link alive during manual movement (200ms interval).
+- **Actions Taken:**
+    - Removed legacy blocking/conflicting PING logic in `loop()`.
+    - Added non-blocking heartbeat pump in `loop()`:
+        - Checks `isManualMoving`.
+        - Checks timer (200ms).
+        - Checks transmission queue availability.
+        - Sends `MSG_REQ_HEARTBEAT` via `queueRequest`.
+
+## Verification
+- Validated that `cmdSend` was bypassed for critical safety commands to ensure direct mapping to `ShuttleProtocol` enums.
+- Validated state transitions ensuring no "spamming" of move commands.
+- Confirmed safety stop is triggered on button release.
