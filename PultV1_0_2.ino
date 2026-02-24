@@ -10,6 +10,36 @@
 //#include <esp_deep_sleep.h>
 #include "sleep_m.h"
 
+namespace SP {
+#include "ShuttleProtocol.h"
+}
+
+// --- Async Tx/Rx Definitions ---
+enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
+
+struct TxJob {
+  uint8_t txBuffer[64];
+  uint8_t txLength;
+  uint8_t seqNum;
+  uint32_t lastTxTime;
+  uint8_t retryCount;
+};
+
+#define TX_QUEUE_SIZE 5
+TxJob txQueue[TX_QUEUE_SIZE];
+uint8_t txHead = 0;
+uint8_t txTail = 0;
+TxState txState = TxState::IDLE;
+
+SP::ProtocolParser parser;
+SP::TelemetryPacket cachedTelemetry;
+SP::SensorPacket cachedSensors;
+bool isDisplayDirty = false;
+bool isOtaUpdating = false;
+uint8_t nextSeqNum = 0;
+bool showQueueFull = false;
+uint32_t queueFullTimer = 0;
+
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
 
@@ -319,6 +349,12 @@ void GetSerial2Data();
 void SetSleep();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
+void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
+void handleRx();
+void processTxQueue();
+bool queueCommand(SP::CommandPacket packet, uint8_t targetID);
+bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID);
+bool queueRequest(uint8_t msgID, uint8_t targetID);
 #pragma endregion
 
 #pragma region setup
@@ -431,6 +467,9 @@ void setup()
     Serial.print(" ");
   }
   digitalWrite(rfout0, LOW);
+
+  AsyncElegantOTA.onStarted([]() { isOtaUpdating = true; });
+  AsyncElegantOTA.onEnd([]() { isOtaUpdating = false; });
 }
 #pragma endregion
 
@@ -458,7 +497,8 @@ void loop()
   {
     AsyncElegantOTA.loop();
   }
-  GetSerial2Data();
+  handleRx();
+  processTxQueue();
   // int Result, Status;
 
   String linkMode = " ";
@@ -467,15 +507,19 @@ void loop()
   {
     if (displayActive)
     {
-      u8g2.clearBuffer();  //очистить буфер
-      u8g2.drawBitmap(0, 0, 16, 64, sleep_mode);
-      u8g2.sendBuffer();  //рисовать содержимое буфера
-      delay(1000);
-      u8g2.setPowerSave(1);
-      displayActive = false;
-      dispactivate = 0;
-      page = MAIN;
-      SetSleep();
+      if (txState == TxState::IDLE && txHead == txTail) {
+        u8g2.clearBuffer();  //очистить буфер
+        u8g2.drawBitmap(0, 0, 16, 64, sleep_mode);
+        u8g2.sendBuffer();  //рисовать содержимое буфера
+        delay(1000);
+        u8g2.setPowerSave(1);
+        displayActive = false;
+        dispactivate = 0;
+        page = MAIN;
+        SetSleep();
+      } else {
+        displayOffTimer = millis();
+      }
     }
   }
   else
@@ -653,7 +697,12 @@ void loop()
           u8g2.print("Выгрузка " + String(quant) + " паллет");
         else
           u8g2.print(shuttleStatusArray[shuttleStatus]);
-        if (warncode)
+
+        if (showQueueFull) {
+            u8g2.setCursor(0, 40);
+            u8g2.print("! QUEUE FULL !");
+            if (millis() - queueFullTimer > 2000) showQueueFull = false;
+        } else if (warncode)
         {
           u8g2.setCursor(0, 40);
           u8g2.print("! " + WarnMsgArray[warncode] + " !");
@@ -1191,395 +1240,155 @@ void loop()
 #pragma region Функции...
 void cmdSend(uint8_t numcmd)
 {
-  int cnt;
-  uint8_t oldtime = waittime;
-  uint8_t mpro = 100 + mproffset;
-  uint8_t chnlo = 100 + chnloffset;
+  SP::CommandPacket cmd;
+  cmd.arg1 = 0;
+  cmd.arg2 = 0;
+  uint8_t target = shuttleNumber;
+
   switch (numcmd)
   {
-    case CMD_STOP:  //стоп
+    case CMD_STOP:
+      cmd.cmdType = SP::CMD_STOP;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       manualCommand = " ";
-      Serial2.print(shuttnumst + "dStop_");
-      delay(50);
-      Serial2.print(shuttnumst + "dStop_");
       break;
-    case CMD_STOP_MANUAL:  //отключение ручного режима
+    case CMD_STOP_MANUAL:
+      cmd.cmdType = SP::CMD_STOP_MANUAL;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
       manualCommand = " ";
-      Serial2.print(shuttnumst + "dStopM");
-      delay(50);
-      Serial2.print(shuttnumst + "dStopM");
       break;
-    case CMD_LOAD:  //загрузка
+    case CMD_LOAD:
+      cmd.cmdType = SP::CMD_LOAD;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
-      Serial2.print(shuttnumst + "dLoad_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLoad_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLoad_!")
-      {
-        Serial2.print(shuttnumst + "dLoad_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLoad_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLoad_!") Serial2.print(shuttnumst + "dLoad_");
-      }
       break;
-    case CMD_UNLOAD:  //выгрузка
+    case CMD_UNLOAD:
+      cmd.cmdType = SP::CMD_UNLOAD;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
-      Serial2.print(shuttnumst + "dUnld_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dUnld_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dUnld_!")
-      {
-        Serial2.print(shuttnumst + "dUnld_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dUnld_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dUnld_!") Serial2.print(shuttnumst + "dUnld_");
-      }
       break;
-    case CMD_CONT_LOAD:  //прод.загрузка
+    case CMD_CONT_LOAD:
+      cmd.cmdType = SP::CMD_LONG_LOAD;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
-      Serial2.print(shuttnumst + "dLLoad");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLLoad!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLLoad!")
-      {
-        Serial2.print(shuttnumst + "dLLoad");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLLoad!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLLoad!") Serial2.print(shuttnumst + "dLLoad");
-      }
       break;
-    case CMD_CONT_UNLOAD:  //прод.выгрузка
+    case CMD_CONT_UNLOAD:
+      cmd.cmdType = SP::CMD_LONG_UNLOAD;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
-      Serial2.print(shuttnumst + "dLUnld");
-      cnt = millis();
-      while (inputString != shuttnumst + "dLUnld!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dLUnld!")
-      {
-        Serial2.print(shuttnumst + "dLUnld");
-        cnt = millis();
-        while (inputString != shuttnumst + "dLUnld!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dLUnld!") Serial2.print(shuttnumst + "dLUnld");
-      }
       break;
-    case CMD_DEMO:  // прод.выгрузка
+    case CMD_DEMO:
+      cmd.cmdType = SP::CMD_DEMO;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualMode = false;
-      Serial2.print(shuttnumst + "dDemo_");
-      cnt = millis();
-      while (inputString != shuttnumst + "dDemo_!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dDemo_!")
-      {
-        Serial2.print(shuttnumst + "dDemo_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dDemo_!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dDemo_!") Serial2.print(shuttnumst + "dDemo_");
-      }
       break;
-    case CMD_PLATFORM_LIFTING:  //подъем палатформы
+    case CMD_PLATFORM_LIFTING:
+      cmd.cmdType = SP::CMD_LIFT_UP;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "/\\";
-      Serial2.print(shuttnumst + "dUp___");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dUp___!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-      if (inputString != shuttnumst + "dUp___!")
-      {
-        Serial2.print(shuttnumst + "dUp___");
-        cnt = millis();
-        while (inputString != shuttnumst + "dUp___!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-        if (inputString != shuttnumst + "dUp___!") Serial2.print(shuttnumst + "dUp___");
-      cnt = millis();
-      }*/
       break;
-    case CMD_PLATFORM_UNLIFTING:  //опускание платформы
+    case CMD_PLATFORM_UNLIFTING:
+      cmd.cmdType = SP::CMD_LIFT_DOWN;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "\\/";
-      Serial2.print(shuttnumst + "dDown_");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dDown_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-      if (inputString != shuttnumst + "dDown_!")
-      {
-        Serial2.print(shuttnumst + "dDown_");
-        cnt = millis();
-        while (inputString != shuttnumst + "dDown_!" && millis() - cnt < 500) {delay(20); GetSerial2Data();}
-        if (inputString != shuttnumst + "dDown_!") Serial2.print(shuttnumst + "dDown_");
-      }*/
       break;
-    case CMD_MOVEMENT_LEFT:  // движение влево
+    case CMD_MOVEMENT_LEFT:
+      cmd.cmdType = SP::CMD_MOVE_LEFT_MAN;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = "<<";
-      Serial2.print(shuttnumst + "dLeft_");
-      /*delay(15);
-      cnt = millis();
-      while (inputString != shuttnumst + "dLeft_!" && millis() - cnt < 250) {delay(100); Serial2.print(shuttnumst +
-      "ngPing"); GetSerial2Data();} if (inputString != shuttnumst + "dLeft_!") Serial2.print(shuttnumst + "dLeft_");*/
       break;
-    case CMD_MOVEMENT_RIGHT:  // движение вправо
+    case CMD_MOVEMENT_RIGHT:
+      cmd.cmdType = SP::CMD_MOVE_RIGHT_MAN;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = ">>";
-      Serial2.print(shuttnumst + "dRight");
-      /*cnt = millis();
-      while (inputString != shuttnumst + "dRight!" && millis() - cnt < 250) {delay(100); Serial2.print(shuttnumst +
-      "ngPing"); GetSerial2Data();} if (inputString != shuttnumst + "dRight!") Serial2.print(shuttnumst + "dRight");*/
       break;
-    case CMD_REVERSE_ON:                     // инверсия движения
-      Serial2.print(shuttnumst + "dRevOn");  // invert mode
+    case CMD_REVERSE_ON:
+      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 1, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_REVERSE_OFF:                    // инверсия движения
-      Serial2.print(shuttnumst + "dReOff");  // invert_mode
+    case CMD_REVERSE_OFF:
+      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 0, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_INTER_PALL_DISTANCE:  // выставление МПР
-      if (mpr < 50)
-        Serial2.print(shuttnumst + "dDm0" + String(mpr));
-      else
-        Serial2.print(shuttnumst + "dDm" + String(mpr));
+    case CMD_INTER_PALL_DISTANCE:
+      if (!queueConfigSet(SP::CFG_INTER_PALLET, mpr, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_UNLOAD_PALLET_BY_NUMBER:  // выгрузка заданного числа паллет
-      if (quant < 10)
-      {
-        Serial2.print(shuttnumst + "dQt00" + String(quant));
-        Serial.println("Send CMD: " + shuttnumst + "dQt00" + String(quant));
-      }
-      else
-      {
-        Serial2.print(shuttnumst + "dQt0" + String(quant));
-        Serial.println("Send CMD: " + shuttnumst + "dQt0" + String(quant));
-      }
+    case CMD_UNLOAD_PALLET_BY_NUMBER:
+      cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
+      cmd.arg1 = quant;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case 16: Serial2.print(shuttnumst + "dCharg"); break;
-    case 17:  // установка нового номера шаттла
-      if (shuttleTempNum < 10)
-        Serial2.print(shuttnumst + "dNN00" + String(shuttleTempNum));
-      else
-        Serial2.print(shuttnumst + "dNN0" + String(shuttleTempNum));
+    case 16:
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_PING:  // запрос пинг
-      Serial2.print(shuttnumst + "ngPing");
+    case 17:
+      if (!queueConfigSet(SP::CFG_SHUTTLE_NUM, shuttleTempNum, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_BACK_TO_ORIGIN:  // возврат в начальную позицию
-      Serial2.print(shuttnumst + "dHome_");
+    case CMD_PING:
+      cmd.cmdType = SP::CMD_PING;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_SET_SPEED:  // установка скорости
-      Serial2.print(shuttnumst + "dSp0" + String((uint8_t)(speedset / 10.41)));
+    case CMD_BACK_TO_ORIGIN:
+      cmd.cmdType = SP::CMD_HOME;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_SET_LENGTH:  // установка длинны шаттла
-      if (shuttleLength == 800)
-        Serial2.print(shuttnumst + "dSl080");
-      else if (shuttleLength == 1000)
-        Serial2.print(shuttnumst + "dSl100");
-      else
-        Serial2.print(shuttnumst + "dSl120");
+    case CMD_SET_SPEED:
+      if (!queueConfigSet(SP::CFG_MAX_SPEED, speedset / 10.41, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_GET_PARAM:  //
-      Serial2.print(shuttnumst + "dSGet_");
+    case CMD_SET_LENGTH:
+      if (!queueConfigSet(SP::CFG_SHUTTLE_LEN, shuttleLength, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_BATTERY_PROTECTION:  // отключение от разряда батареи
-      if (lowbatt < 10)
-        Serial2.print(shuttnumst + "dBc00" + String(lowbatt));
-      else
-        Serial2.print(shuttnumst + "dBc0" + String(lowbatt));
+    case CMD_GET_PARAM:
+      if (!queueRequest(SP::MSG_REQ_STATS, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_GET_ERRORS:  //ошибки
-      Serial2.print(shuttnumst + "tError");
-      delay(10);
-      Serial2.print(shuttnumst + "dSGet_");
+    case CMD_BATTERY_PROTECTION:
+      if (!queueConfigSet(SP::CFG_MIN_BATT, lowbatt, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_GET_MENU: Serial2.print(shuttnumst + "dGetPC"); break;
-    case CMD_PALLETE_COUNT: Serial2.print(shuttnumst + "dGetQu"); break;
-    case CMD_PACKING_BACK:  //уплотнение назад
-      Serial2.print(shuttnumst + "dComBa");
-      cnt = millis();
-      while (inputString != shuttnumst + "dComBa!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dComBa!")
-      {
-        Serial2.print(shuttnumst + "dComBa");
-        cnt = millis();
-        while (inputString != shuttnumst + "dComBa!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dComBa!") Serial2.print(shuttnumst + "dComBa");
-      }
+    case CMD_GET_ERRORS:
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_PACKING_FORWARD:  //уплотнение вперед
-      Serial2.print(shuttnumst + "dComFo");
-      cnt = millis();
-      while (inputString != shuttnumst + "dComFo!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dComFo!")
-      {
-        Serial2.print(shuttnumst + "dComFo");
-        cnt = millis();
-        while (inputString != shuttnumst + "dComFo!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dComFo!") Serial2.print(shuttnumst + "dComFo");
-      }
+    case CMD_GET_MENU:
+      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      break;
+    case CMD_PALLETE_COUNT:
+      cmd.cmdType = SP::CMD_COUNT_PALLETS;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      break;
+    case CMD_PACKING_BACK:
+      cmd.cmdType = SP::CMD_COMPACT_R;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      break;
+    case CMD_PACKING_FORWARD:
+      cmd.cmdType = SP::CMD_COMPACT_F;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_WAIT_TIME:
-      if (waittime < 10)
-        Serial2.print(shuttnumst + "dWt0" + String(waittime));
-      else
-        Serial2.print(shuttnumst + "dWt" + String(waittime));
+      if (!queueConfigSet(SP::CFG_WAIT_TIME, waittime, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_MPR_OFFSET:
-      if (mpro < 10) Serial2.print(shuttnumst + "dMo00" + String(mpro));
-      if (mpro < 100)
-        Serial2.print(shuttnumst + "dMo0" + String(mpro));
-      else
-        Serial2.print(shuttnumst + "dMo" + String(mpro));
+      if (!queueConfigSet(SP::CFG_MPR_OFFSET, mproffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_CHNL_OFFSET:
-      if (chnlo < 10) Serial2.print(shuttnumst + "dMc00" + String(chnlo));
-      if (chnlo < 100)
-        Serial2.print(shuttnumst + "dMc0" + String(chnlo));
-      else
-        Serial2.print(shuttnumst + "dMc" + String(chnlo));
+      if (!queueConfigSet(SP::CFG_CHNL_OFFSET, chnloffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case 32: Serial2.print(shuttnumst + "dTest2" + String(testtimer2)); break;
-    case 33: Serial2.print(shuttnumst + "dTestR" + String(testrepeat)); break;
-    case 34: Serial2.print(shuttnumst + "dTestG"); break;
-    case 35: Serial2.print(shuttnumst + "dPallQ"); break;
-    case 36: Serial2.print(shuttnumst + "dSttic" + String(odometr_pos)); break;
-    case 37:  //мин.заряд
-      Serial2.print(shuttnumst + "dLevel" + String(minlevel));
-      break;
-    case 38:
-      Serial2.print(shuttnumst + "dminLv");  // get min batt lvl
-      break;
-    case 39: Serial2.print(shuttnumst + "dSaveC"); break;
     case CMD_FIFO_LIFO:
-      if (fifolifo_mode)
-        Serial2.print(shuttnumst + "dLIFO_");  //режим fifo/lifo
-      else
-        Serial2.print(shuttnumst + "dFIFO_");
+      if (!queueConfigSet(SP::CFG_FIFO_LIFO, fifolifo_mode, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case 42: Serial2.print(shuttnumst + "dEngee"); break;
     case 43:
-      Serial2.print(shuttnumst + "dClbr_");  //Калибровка
+      cmd.cmdType = SP::CMD_CALIBRATE;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case 44:
-      // Serial2.print(shuttnumst + "dGetLg");  // get all data
-      // Serial2.print(shuttnumst + "dSGet_");  // get all data
-      Serial2.print(shuttnumst + "dDataP");  // get all data
+      if (!queueRequest(SP::MSG_REQ_SENSORS, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_RESET:
-      Serial2.print(shuttnumst + "dReset");
-      cnt = millis();
-      while (inputString != shuttnumst + "dReset!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dReset!")
-      {
-        Serial2.print(shuttnumst + "dReset");
-        cnt = millis();
-        while (inputString != shuttnumst + "dReset!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dReset!") Serial2.print(shuttnumst + "dReset");
-      }
+      cmd.cmdType = SP::CMD_RESET_ERROR;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_MANUAL:
-      Serial2.print(shuttnumst + "dManua");
-      cnt = millis();
-      while (inputString != shuttnumst + "dManua!" && millis() - cnt < 500)
-      {
-        delay(20);
-        GetSerial2Data();
-      }
-      if (inputString != shuttnumst + "dManua!")
-      {
-        Serial2.print(shuttnumst + "dManua");
-        cnt = millis();
-        while (inputString != shuttnumst + "dManua!" && millis() - cnt < 500)
-        {
-          delay(20);
-          GetSerial2Data();
-        }
-        if (inputString != shuttnumst + "dManua!") Serial2.print(shuttnumst + "dManua");
-      }
+      cmd.cmdType = SP::CMD_MANUAL_MODE;
+      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case 46:
-      String tempsnum = shuttnumst;
-      uint16_t *p_shuttnum;
-      uint16_t *p_DataSend;
-      p_shuttnum = (uint16_t *)&tempsnum;
-      p_DataSend = (uint16_t *)&DataSend[0];
-      *p_DataSend = *p_shuttnum;
-      DataSend[2] = 68;  // D
-      DataSend[3] = 84;  // T
-      DataSend[4] = settDataMenu[1];
-      DataSend[5] = settDataMenu[2];
-      uint8_t rever[4];
-      uint32_t *p_val = (uint32_t *)&rever[0];
-      *p_val = *(&dist_stop_cv3);
-      uint8_t i;
-      for (i = 0; i < 4; i++)
-      {
-        DataSend[i + 6] = rever[3 - i];
-      }
-      *p_val = *(&upl_wait_time);
-      for (i = 0; i < 4; i++)
-      {
-        DataSend[i + 10] = rever[3 - i];
-      }
-      DataSend[15] = pallet_plank;
-      DataSend[16] ^= (-pallet_800_only ^ DataSend[16]) & (1 << 0);
-      Serial2.write(DataSend, 20);
-      break;
-      /*case 47:
-      Serial2.print(shuttnumst+"dmprcalRev" + "dCharg"); //расстояние начала срабатывания датчика палеты мпр
-      break;*/
   }
 }
 
@@ -2034,39 +1843,22 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == MOVEMENT_RIGHT)
               {
-                if (cursorPos == 1)
-                {
-                  Serial2.print(shuttnumst + "dMf010");
-                }
-                else if (cursorPos == 2)
-                {
-                  Serial2.print(shuttnumst + "dMf020");
-                }
-                else if (cursorPos == 3)
-                {
-                  Serial2.print(shuttnumst + "dMf030");
-                }
-                else if (cursorPos == 4)
-                {
-                  Serial2.print(shuttnumst + "dMf050");
-                }
-                else if (cursorPos == 5)
-                {
-                  Serial2.print(shuttnumst + "dMf100");
-                }
-                else if (cursorPos == 6)
-                {
-                  Serial2.print(shuttnumst + "dMf200");
-                }
-                else if (cursorPos == 7)
-                {
-                  Serial2.print(shuttnumst + "dMf300");
-                }
-                else if (cursorPos == 8)
-                {
-                  Serial2.print(shuttnumst + "dMf500");
-                }
-                else if (cursorPos == 9)
+                SP::CommandPacket cmd;
+                cmd.cmdType = SP::CMD_MOVE_DIST_F;
+                cmd.arg2 = 0;
+
+                if (cursorPos == 1) cmd.arg1 = 100;
+                else if (cursorPos == 2) cmd.arg1 = 200;
+                else if (cursorPos == 3) cmd.arg1 = 300;
+                else if (cursorPos == 4) cmd.arg1 = 500;
+                else if (cursorPos == 5) cmd.arg1 = 1000;
+                else if (cursorPos == 6) cmd.arg1 = 2000;
+                else if (cursorPos == 7) cmd.arg1 = 3000;
+                else if (cursorPos == 8) cmd.arg1 = 5000;
+
+                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
+
+                if (cursorPos == 9)
                 {
                   page = MOVEMENT;
                   cursorPos = 1;
@@ -2074,39 +1866,22 @@ void keypadEvent(KeypadEvent key)
               }
               else if (page == MOVEMENT_LEFT)
               {
-                if (cursorPos == 1)
-                {
-                  Serial2.print(shuttnumst + "dMr010");
-                }
-                else if (cursorPos == 2)
-                {
-                  Serial2.print(shuttnumst + "dMr020");
-                }
-                else if (cursorPos == 3)
-                {
-                  Serial2.print(shuttnumst + "dMr030");
-                }
-                else if (cursorPos == 4)
-                {
-                  Serial2.print(shuttnumst + "dMr050");
-                }
-                else if (cursorPos == 5)
-                {
-                  Serial2.print(shuttnumst + "dMr100");
-                }
-                else if (cursorPos == 6)
-                {
-                  Serial2.print(shuttnumst + "dMr200");
-                }
-                else if (cursorPos == 7)
-                {
-                  Serial2.print(shuttnumst + "dMr300");
-                }
-                else if (cursorPos == 8)
-                {
-                  Serial2.print(shuttnumst + "dMr500");
-                }
-                else if (cursorPos == 9)
+                SP::CommandPacket cmd;
+                cmd.cmdType = SP::CMD_MOVE_DIST_R;
+                cmd.arg2 = 0;
+
+                if (cursorPos == 1) cmd.arg1 = 100;
+                else if (cursorPos == 2) cmd.arg1 = 200;
+                else if (cursorPos == 3) cmd.arg1 = 300;
+                else if (cursorPos == 4) cmd.arg1 = 500;
+                else if (cursorPos == 5) cmd.arg1 = 1000;
+                else if (cursorPos == 6) cmd.arg1 = 2000;
+                else if (cursorPos == 7) cmd.arg1 = 3000;
+                else if (cursorPos == 8) cmd.arg1 = 5000;
+
+                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
+
+                if (cursorPos == 9)
                 {
                   page = MOVEMENT;
                   cursorPos = 1;
@@ -2406,7 +2181,10 @@ void keypadEvent(KeypadEvent key)
             else if (page == STATUS_PGG && cursorPos == 2)
             {
               logWrite = !logWrite;
-              Serial2.print(shuttnumst + "dLg" + logWrite);
+              SP::CommandPacket cmd;
+              cmd.cmdType = SP::CMD_LOG_MODE;
+              cmd.arg1 = logWrite;
+              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
               cmdSend(44);
             }
             break;
@@ -2589,7 +2367,11 @@ void keypadEvent(KeypadEvent key)
               shuttleTempNum = Tempshutnum;
             }
             hideshuttnum = true;
-            Serial2.print(shuttnum[Tempshutnum - 1] + "dBeep_");
+            {
+              SP::CommandPacket cmd;
+              cmd.cmdType = SP::CMD_PING;
+              if (!queueCommand(cmd, Tempshutnum)) { showQueueFull = true; queueFullTimer = millis(); }
+            }
           }
         }
       }
@@ -2622,524 +2404,177 @@ void ShowTime()
   Elapsed = millis() - Elapsed;
 }
 
-void GetSerial2Data()
-{
-  uint8_t count_inbyte = 0;
-  inputString = "";
-  while (Serial2.available() > 0)
-  {
-    int8_t inbyte = Serial2.read();
-    if (page > DEBUG_INFO)
-    {
-      settDataIn[count_inbyte] = inbyte;
-      count_inbyte++;
-    }
-    char inChar = (char)inbyte;
-    if (inChar)
-    {
-      inputString += inChar;
-      if (inChar == '!')
-      {
-        stringComplete = true;
-        break;
-      }
-    }
-    delayMicroseconds(1750);
+
+bool queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
+  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
+  if (nextTail != txHead) {
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = sizeof(SP::CommandPacket);
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = SP::MSG_COMMAND;
+
+    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cmd, sizeof(SP::CommandPacket));
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket));
+    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket) + 2;
+
+    txTail = nextTail;
+    return true;
   }
-  Serial2in = inputString;
-  if (stringComplete)
-  {
-    //Serial.println(inputString);
-    String TempStr = inputString.substring(0, 2);
-    if (TempStr == shuttnumst)
-    {
-      TempStr = inputString.substring(2, 4);
-      uint8_t i = 0;
-      uint8_t k = 0;
-      uint8_t l = 0;
-      if (TempStr == "t1")
-      {  // get fifo, charge, status
-        countcharge = 3;
-        TempStr = inputString.substring(4, 5);
-        int TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) fifolifo_mode = TempInt;
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 50)
-        {
-          if (TempInt > 30)
-          {
-            showarn = true;
-            TempInt -= 30;
-          }
-          else
-            showarn = false;
-          if (TempInt == 10 && shuttleStatus == 13) quant = 0;
-          shuttleStatus = TempInt;
-          if (shuttleStatus == 1)
-            manualMode = 1;
-          else
-            manualMode = 0;
-          if (shuttleStatus == 5)
-            evacuatstatus = 1;
-          else
-            evacuatstatus = 0;
-        }
-        else
-          shuttleStatus = 0;
-        for (k = 0; k <= 2; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(7 + i, 8 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 101)
-        {
-          shuttleBattery = TempInt;
-        }
-        else
-        {
-          shuttleBattery = -1;
-          newMpr = 0;
-          quant = 0;
-          newshuttleLength = 0;
-          newspeedset = 0;
-          warncode = 0;
-          newlowbatt = 100;
-          newreverse = 2;
-          waittime = 0;
-          newwaittime = 0;
-          mproffset = 0;
-          newmproffset = 120;
-          chnloffset = 0;
-          newchnloffset = 120;
-        }
-        TempStr = inputString.substring(9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99 && millis() - uctimer > 1000 && shuttleStatus != 13)
-        {
-          palletconf = TempInt;
-          palletconfst = String(palletconf);
-        }
-        /*if (page == PACKING_CONTROL) {
-          page = MAIN;
-          cursorPos = 1;
-        }*/
-      }
-      else if (TempStr == "t3")
-      {  // get pallet conf получите конфигурацию поддона
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 100 && millis() - uctimer > 1000 && shuttleStatus != 13)
-        {
-          palletconf = TempInt;
-          palletconfst = String(palletconf);
-        }
-      }
-      else if (TempStr == "t4")
-      {  // get max speed, fifolifo, mpr / получите максимальную скорость, fifo lifo, mpr
-        countcharge = 3;
-
-        uint8_t i = 0;
-        TempStr = inputString.substring(4, 5);
-        fifolifo = TempStr.toInt();
-        if (newreverse != 2 && newreverse != fifolifo)
-        {
-          fifolifo = newreverse;
-          if (fifolifo)
-            cmdSend(CMD_REVERSE_OFF);
-          else
-            cmdSend(CMD_REVERSE_ON);
-        }
-        else if (newreverse == 2)
-          newreverse = fifolifo;
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(7 + i, 8 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 7 + i);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 100)
-        {
-          speedset = TempInt * 10.41;
-          speedset = ((speedset + 25) / 50) * 50;
-          if (newspeedset != 0 && newspeedset != speedset)
-          {
-            speedset = newspeedset;
-            cmdSend(CMD_SET_SPEED);
-          }
-        }
-        for (k = 0; k <= 2; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(8 + i, 9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 500)
-        {
-          mpr = TempInt;
-          if (newMpr != 0 && newMpr != mpr)
-          {
-            mpr = newMpr;
-            cmdSend(CMD_INTER_PALL_DISTANCE);
-          }
-        }
-        int p = 0;
-        for (p = 0; p <= 1; p++)
-        {
-          TempStr = inputString.substring(10 + i + k + p, 11 + i + k + p);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(9 + i + k, 10 + i + k + p);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 50)
-        {
-          lowbatt = TempInt;
-          if (newlowbatt != 100 && newlowbatt != lowbatt)
-          {
-            lowbatt = newlowbatt;
-            cmdSend(CMD_BATTERY_PROTECTION);
-          }
-        }
-        TempStr = inputString.substring(11 + i + k + p);
-        TempInt = TempStr.toInt();
-        if (TempInt == 800 || TempInt == 1000 || TempInt == 1200)
-        {
-          shuttleLength = TempInt;
-          if (newshuttleLength != 0 && newshuttleLength != shuttleLength)
-          {
-            shuttleLength = newshuttleLength;
-            cmdSend(CMD_SET_LENGTH);
-          }
-        }
-      }
-      else if (TempStr == "rc")
-      {  // get error получить ошибку
-        countcharge = 3;
-        uint8_t i = 0;
-        TempStr = inputString.substring(4, 5);
-        for (i = 0; i <= 4; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        uint16_t TempInt = TempStr.toInt();
-        if (TempInt >= 0)
-        {
-          errorcode = TempInt;
-        }
-        TempStr = inputString.substring(7 + i);
-        TempInt = TempStr.toInt();
-      }
-      else if (TempStr == "wc")
-      {
-        TempStr = inputString.substring(4, 7);
-        uint8_t wrncd = TempStr.toInt();
-        if (wrncd != warncode && millis() - warntimer > 2000)
-        {
-          warntimer = millis();
-          warncode = wrncd;
-        }
-      }
-      else if (TempStr == "t6")
-      {  // get test получить тест
-        countcharge = 3;
-        uint8_t i = 0;
-        uint8_t k = 0;
-        TempStr = inputString.substring(4, 5);
-        testnum = TempStr.toInt();
-        for (i = 0; i <= 1; i++)
-        {
-          TempStr = inputString.substring(6 + i, 7 + i);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(5, 6 + i);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99)
-        {
-          testtimer1 = TempInt;
-        }
-        for (k = 0; k <= 1; k++)
-        {
-          TempStr = inputString.substring(8 + i + k, 9 + i + k);
-          if (TempStr == ":")
-          {
-            break;
-          }
-        }
-        TempStr = inputString.substring(7 + i, 8 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 99)
-        {
-          testtimer2 = TempInt;
-        }
-        TempStr = inputString.substring(9 + i + k);
-        TempInt = TempStr.toInt();
-        if (TempInt >= 0)
-        {
-          testrepeat = TempInt;
-        }
-      }
-      else if (TempStr == "FL")
-      {  // get fifo away, fifo/lifo mode уберите fifo, режим fifo/lifo
-        countcharge = 3;
-        TempStr = inputString.substring(4, 5);
-        int TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) shuttbackaway = TempInt;
-        TempStr = inputString.substring(5, 6);
-        TempInt = TempStr.toInt();
-        if (TempInt == 0 || TempInt == 1) fifolifo_mode = TempInt;
-      }
-      else if (TempStr == "pq")
-      {  // get downloads quant pallet получите поддон количества загрузок
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt > 0 && TempInt < 100)
-        {
-          quant = TempInt;
-          shuttleStatus = 13;
-        }
-        else
-          quant = 0;
-        Serial.println("Quant 2 = " + String(quant) + " string: " + TempStr + " fullstr: " + inputString);
-      }
-      else if (TempStr == "ml")
-      {  // get minlevel получить минимальный уровень
-        countcharge = 3;
-        TempStr = inputString.substring(4);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 30)
-        {
-          minlevel = TempInt;
-        }
-        else
-          minlevel = 31;
-      }
-      else if (TempStr == "st")
-      {  // get statistic odometr получите статистику одометра
-        countcharge = 0;
-        TempStr = inputString.substring(4, 5);
-        int TempStat = TempStr.toInt();
-        TempStr = inputString.substring(6);
-        int TempInt = TempStr.toInt();
-        if (TempStat >= 0 && TempStat < 10 && TempInt >= 0)
-        {
-          statistic[TempStat] = TempInt;
-          getchargetime = millis();
-          if (TempInt >= 0)
-          {
-            // countcharge = 0;
-            odometr_pos = TempStat + 1;
-            if (odometr_pos < 10)
-            {
-              // cmdStatistic();
-              cyclegetcharge = 0;
-              // countcharge = 0;
-            }
-          }
-        }
-      }
-      else if (TempStr == "iu")
-      {  // калибровка
-        TempStr = inputString.substring(2, 8);
-        int Tempoffs = TempStr.toInt();
-        if (Tempoffs > 0)
-        {
-          calibret = Tempoffs;
-          calibret = "Да";
-        }
-        else
-          calibret = "Нет";
-      }
-      else if (TempStr == "yt")
-      {
-        countcharge = 3;
-        TempStr = inputString.substring(4, 8);
-        int TempInt = TempStr.toInt();
-        if (TempInt >= 0 && TempInt <= 1500)
-        {
-          sensor_channel_f = TempInt;
-        }
-
-        TempStr = inputString.substring(9, 13);
-        int Tempint = TempStr.toInt();
-        if (Tempint >= 0 && Tempint <= 1500)
-        {
-          sensor_channel_r = Tempint;
-        }
-
-        TempStr = inputString.substring(14, 18);
-        int Temp_sens_pl_f = TempStr.toInt();
-        if (Temp_sens_pl_f >= 0 && Temp_sens_pl_f <= 1500)
-        {
-          sensor_pallete_F = Temp_sens_pl_f;
-        }
-
-        TempStr = inputString.substring(19, 23);
-        int Temp_sens_pl_r = TempStr.toInt();
-        if (Temp_sens_pl_r >= 0 && Temp_sens_pl_r <= 1500)
-        {
-          sensor_pallete_R = Temp_sens_pl_r;
-        }
-
-        TempStr = inputString.substring(24, 28);
-        int Temp_enc = TempStr.toInt();
-        if (Temp_enc >= 0 && Temp_enc <= 4096)
-        {
-          enc_mm = Temp_enc;
-        }
-
-        TempStr = inputString.substring(29, 30);
-        int tempInt = TempStr.toInt();
-        if (tempInt >= 0)
-        {
-          DATCHIK_F1 = tempInt;
-        }
-
-        TempStr = inputString.substring(31, 32);
-        int tempint = TempStr.toInt();
-        if (tempint >= 0)
-        {
-          DATCHIK_F2 = tempint;
-        }
-
-        TempStr = inputString.substring(33, 34);
-        int Temp_DATCH_r1 = TempStr.toInt();
-        if (Temp_DATCH_r1 >= 0)
-        {
-          DATCHIK_R1 = Temp_DATCH_r1;
-        }
-
-        TempStr = inputString.substring(35, 36);
-        int Temp_DATCH_r2 = TempStr.toInt();
-        if (Temp_DATCH_r2 >= 0)
-        {
-          DATCHIK_R2 = Temp_DATCH_r2;
-        }
-      }
-      else if (TempStr == "lg")
-      {
-        TempStr = inputString.substring(4, 5);
-        logWrite = TempStr.toInt();
-      }
-      else if (TempStr == "wt")
-      {
-        TempStr = inputString.substring(4, 6);
-        waittime = TempStr.toInt();
-        if (newwaittime && newwaittime != waittime)
-        {
-          waittime = newwaittime;
-          cmdSend(CMD_WAIT_TIME);
-        }
-      }
-      else if (TempStr == "wo")
-      {
-        TempStr = inputString.substring(4, 7);
-        mproffset = TempStr.toInt() - 100;
-        if (newmproffset != 120 && newmproffset != mproffset)
-        {
-          mproffset = newmproffset;
-          cmdSend(CMD_MPR_OFFSET);
-        }
-        TempStr = inputString.substring(8, 11);
-        chnloffset = TempStr.toInt() - 100;
-        if (newchnloffset != 120 && newchnloffset != chnloffset)
-        {
-          chnloffset = newchnloffset;
-          cmdSend(CMD_CHNL_OFFSET);
-        }
-      }
-    }
-    UpdateParam = true;
-    //}
-    displayUpdate = true;
-  }
-  stringComplete = false;
+  return false;
 }
 
-String GetSerial2Ans_()
-{
-  int8_t inByte = 0;
-  String inStr = "";
-  if (Serial2.available())  // Получаем команду
-  {
-    inByte = Serial2.read();
-    char inChar = (char)inByte;
-    inStr += inChar;
-    delayMicroseconds(1750);
-    inByte = Serial2.read();
-    inChar = (char)inByte;
-    inStr += inChar;
-    while (inStr != shuttnumst && Serial2.available())
-    {
-      inStr = inStr.substring(1, 2);
-      delayMicroseconds(1750);
-      inByte = Serial2.read();
-      inChar = (char)inByte;
-      inStr += inChar;
+bool queueRequest(uint8_t msgID, uint8_t targetID) {
+  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
+  if (nextTail != txHead) {
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = 0;
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = msgID;
+
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader));
+    job->txLength = sizeof(SP::FrameHeader) + 2;
+
+    txTail = nextTail;
+    return true;
+  }
+  return false;
+}
+
+bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID) {
+  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
+  if (nextTail != txHead) {
+    TxJob* job = &txQueue[txTail];
+    job->seqNum = nextSeqNum++;
+    job->retryCount = 0;
+
+    SP::ConfigPacket cfg;
+    cfg.paramID = paramID;
+    cfg.value = value;
+
+    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
+    header->sync1 = SP::PROTOCOL_SYNC_1;
+    header->sync2 = SP::PROTOCOL_SYNC_2;
+    header->length = sizeof(SP::ConfigPacket);
+    header->targetID = targetID;
+    header->seq = job->seqNum;
+    header->msgID = SP::MSG_CONFIG_SET;
+
+    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cfg, sizeof(SP::ConfigPacket));
+    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket));
+    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket) + 2;
+
+    txTail = nextTail;
+    return true;
+  }
+  return false;
+}
+
+void processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
+  if (txState == TxState::WAITING_ACK && txHead != txTail) {
+    if (txQueue[txHead].seqNum == seq) {
+      txHead = (txHead + 1) % TX_QUEUE_SIZE;
+      txState = TxState::IDLE;
     }
-    if (inStr == shuttnumst)
-    {
-      int cnt = millis();
-      while (inStr.length() <= 7 && millis() - cnt < 50)
-      {
-        delayMicroseconds(100);
-        if (Serial2.available())
-        {
-          inByte = Serial2.read();
-          inChar = (char)inByte;
-          inStr += inChar;
+  }
+}
+
+void processTxQueue() {
+  if (isOtaUpdating) return;
+
+  if (txState == TxState::IDLE) {
+    if (txHead != txTail) {
+      TxJob* job = &txQueue[txHead];
+
+      Serial2.write(job->txBuffer, job->txLength);
+
+      job->lastTxTime = millis();
+      txState = TxState::WAITING_ACK;
+    }
+  } else if (txState == TxState::WAITING_ACK) {
+    if (txHead != txTail) {
+      TxJob* job = &txQueue[txHead];
+      if (millis() - job->lastTxTime > 500) {
+        if (job->retryCount < 3) {
+          job->retryCount++;
+          Serial2.write(job->txBuffer, job->txLength);
+          job->lastTxTime = millis();
+        } else {
+          txState = TxState::TIMEOUT_ERROR;
         }
       }
-      if (inStr.length() == 8) return inStr;
+    } else {
+      txState = TxState::IDLE;
+    }
+  } else if (txState == TxState::TIMEOUT_ERROR) {
+      if (txHead != txTail) {
+        txHead = (txHead + 1) % TX_QUEUE_SIZE;
+      }
+      txState = TxState::IDLE;
+  }
+}
+
+void handleRx() {
+  if (isOtaUpdating) return;
+
+  while (Serial2.available()) {
+    uint8_t byte = Serial2.read();
+    SP::FrameHeader* header = parser.feed(byte);
+
+    if (header) {
+      uint8_t* payload = (uint8_t*)header + sizeof(SP::FrameHeader);
+
+      switch (header->msgID) {
+        case SP::MSG_ACK:
+          processIncomingAck(header->seq, (SP::AckPacket*)payload);
+          break;
+
+        case SP::MSG_HEARTBEAT:
+          {
+            SP::TelemetryPacket* packet = (SP::TelemetryPacket*)payload;
+            memcpy(&cachedTelemetry, packet, sizeof(SP::TelemetryPacket));
+            shuttleStatus = cachedTelemetry.shuttleStatus;
+            shuttleBattery = cachedTelemetry.batteryCharge;
+            errorcode = cachedTelemetry.errorCode;
+            quant = cachedTelemetry.palleteCount;
+            // Map other fields if needed
+            isDisplayDirty = true;
+          }
+          break;
+
+        case SP::MSG_SENSORS:
+          {
+            SP::SensorPacket* packet = (SP::SensorPacket*)payload;
+            memcpy(&cachedSensors, packet, sizeof(SP::SensorPacket));
+            sensor_channel_f = cachedSensors.distanceF;
+            sensor_channel_r = cachedSensors.distanceR;
+            sensor_pallete_F = cachedSensors.distancePltF;
+            sensor_pallete_R = cachedSensors.distancePltR;
+            enc_mm = cachedSensors.angle;
+            // Map other fields if needed
+            isDisplayDirty = true;
+          }
+          break;
+
+        case SP::MSG_STATS:
+             // Map stats if needed
+             break;
+      }
     }
   }
-  return inStr;
-}
-String GetSerial2Ans()
-{
-  int8_t inByte = 0;
-  String inStr = "";
-  while (Serial2.available())  // Получаем команду
-  {
-    inByte = Serial2.read();
-    char inChar = (char)inByte;
-    inStr += inChar;
-    delayMicroseconds(1750);
-  }
-  return inStr;
 }
 
 void SetSleep()
