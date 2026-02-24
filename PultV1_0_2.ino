@@ -161,17 +161,12 @@ Keypad kpd(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 int8_t cursorPos = 1;  // default cursor position
 int8_t shuttleNumber = 1;
 int8_t shuttleTempNum = 1;
-uint16_t shuttleLength = 800;
-uint16_t newshuttleLength = 0;
 
 bool isUpdateStarted = false;
 
-int mpr = 0;
-int newMpr = 0;
 uint8_t inputQuant = 0;
 int8_t numquant1 = 0;
 int8_t numquant2 = 0;
-bool fifolifo = false;
 bool displayActive = true;
 bool manualMode = false;
 String manualCommand = " ";
@@ -197,7 +192,6 @@ String Serial2in = "";
 int16_t speedset = 10;
 int16_t newspeedset = 0;
 uint8_t shuttbackaway = 100;  //отступ от края 800 паллета FIFO/LIFO
-// uint8_t fifolifo_mode = 0;    // Removed
 String palletconfst = "0";
 bool showarn = false;
 bool warnblink = false;
@@ -244,16 +238,7 @@ const String shuttnum[32] = { "A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8", "I
 const uint8_t shuttnumLength = sizeof(shuttnum) / sizeof(shuttnum[0]);
 
 // uint8_t shuttleStatus = 0; // Removed
-uint8_t lowbatt = 20;
-uint8_t newlowbatt = 100;
 uint8_t battindicat = 0;
-uint8_t newreverse = 2;
-uint8_t waittime = 0;
-uint8_t newwaittime = 0;
-int8_t mproffset = 0;
-int8_t newmproffset = 120;
-int8_t chnloffset = 0;
-int8_t newchnloffset = 120;
 int chargact = 0;
 int warntimer = millis();
 int uctimer = warntimer;
@@ -1151,15 +1136,6 @@ void cmdSend(uint8_t numcmd)
       if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       manualCommand = ">>";
       break;
-    case CMD_REVERSE_ON:
-      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 1, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_REVERSE_OFF:
-      if (!queueConfigSet(SP::CFG_REVERSE_MODE, 0, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_INTER_PALL_DISTANCE:
-      if (!queueConfigSet(SP::CFG_INTER_PALLET, mpr, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
     case CMD_UNLOAD_PALLET_BY_NUMBER:
       cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
       cmd.arg1 = inputQuant;
@@ -1179,17 +1155,8 @@ void cmdSend(uint8_t numcmd)
       cmd.cmdType = SP::CMD_HOME;
       if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
-    case CMD_SET_SPEED:
-      if (!queueConfigSet(SP::CFG_MAX_SPEED, speedset / 10.41, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_SET_LENGTH:
-      if (!queueConfigSet(SP::CFG_SHUTTLE_LEN, shuttleLength, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
     case CMD_GET_PARAM:
       if (!queueRequest(SP::MSG_REQ_STATS, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_BATTERY_PROTECTION:
-      if (!queueConfigSet(SP::CFG_MIN_BATT, lowbatt, target)) { showQueueFull = true; queueFullTimer = millis(); }
       break;
     case CMD_GET_ERRORS:
       if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
@@ -1208,18 +1175,6 @@ void cmdSend(uint8_t numcmd)
     case CMD_PACKING_FORWARD:
       cmd.cmdType = SP::CMD_COMPACT_F;
       if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_WAIT_TIME:
-      if (!queueConfigSet(SP::CFG_WAIT_TIME, waittime, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_MPR_OFFSET:
-      if (!queueConfigSet(SP::CFG_MPR_OFFSET, mproffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_CHNL_OFFSET:
-      if (!queueConfigSet(SP::CFG_CHNL_OFFSET, chnloffset, target)) { showQueueFull = true; queueFullTimer = millis(); }
-      break;
-    case CMD_FIFO_LIFO:
-      // Handled directly in keypadEvent
       break;
     case 43:
       cmd.cmdType = SP::CMD_CALIBRATE;
@@ -1281,18 +1236,7 @@ void keypadEvent(KeypadEvent key)
         {
           shuttleNumber = shuttleTempNum;
           prefs.putUInt("sht_num", shuttleNumber);
-          newMpr = 0;
           inputQuant = 0;
-          newshuttleLength = 0;
-          newspeedset = 0;
-          newlowbatt = 100;
-          newreverse = 2;
-          waittime = 0;
-          newwaittime = 0;
-          mproffset = 0;
-          newmproffset = 120;
-          chnloffset = 0;
-          newchnloffset = 120;
           delay(300);
           shuttnumst = shuttnum[shuttleNumber - 1];
           hideshuttnum = 0;
@@ -1353,18 +1297,7 @@ void keypadEvent(KeypadEvent key)
             shuttnewnumst = shuttnum[shuttleTempNum - 1];
             cmdSend(17);
             prefs.putUInt("sht_num", shuttleNumber);
-            newMpr = 0;
             inputQuant = 0;
-            newshuttleLength = 0;
-            newspeedset = 0;
-            newlowbatt = 100;
-            newreverse = 2;
-            waittime = 0;
-            newwaittime = 0;
-            mproffset = 0;
-            newmproffset = 120;
-            chnloffset = 0;
-            newchnloffset = 120;
             delay(300);
             // cmdStatus();
             page = MAIN;  // toggle menu mode
@@ -1445,7 +1378,11 @@ void keypadEvent(KeypadEvent key)
               {
                 page = OPTIONS;
                 cursorPos = 1;
-                cmdSend(CMD_GET_PARAM);
+                // Request Options Params
+                queueConfigGet(SP::CFG_INTER_PALLET, shuttleNumber);
+                queueConfigGet(SP::CFG_REVERSE_MODE, shuttleNumber);
+                queueConfigGet(SP::CFG_MAX_SPEED, shuttleNumber);
+                queueConfigGet(SP::CFG_MIN_BATT, shuttleNumber);
               }
               else if (page == MENU && cursorPos == 7)
               {
@@ -1491,7 +1428,11 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
-                  cmdSend(42);
+                  // Request Eng Params
+                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
+                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
+                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
+                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
                 }
                 else
                 {
@@ -1597,6 +1538,11 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = OPTIONS;
                   cursorPos = 1;
+                  // Request Options Params (returning from Eng Menu)
+                  queueConfigGet(SP::CFG_INTER_PALLET, shuttleNumber);
+                  queueConfigGet(SP::CFG_REVERSE_MODE, shuttleNumber);
+                  queueConfigGet(SP::CFG_MAX_SPEED, shuttleNumber);
+                  queueConfigGet(SP::CFG_MIN_BATT, shuttleNumber);
                 }
               }
               else if (page == SYSTEM_SETTINGS_WARN && cursorPos == 4)
@@ -1613,6 +1559,10 @@ void keypadEvent(KeypadEvent key)
               {
                 cursorPos = 1;
                 page = ENGINEERING_MENU;
+                queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
+                queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
+                queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
+                queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
               }
               else if (page == STATUS_PGG)
               {
@@ -1626,6 +1576,12 @@ void keypadEvent(KeypadEvent key)
                   {
                     page = pageAfterPin;
                     cursorPos = 1;
+                    if (page == ENGINEERING_MENU) {
+                        queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
+                        queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
+                        queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
+                        queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                    }
                   }
                   else
                   {
@@ -1661,6 +1617,10 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
+                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
+                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
+                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
+                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
                 }
               }
               else if (page == MOVEMENT)
@@ -1679,6 +1639,10 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
+                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
+                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
+                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
+                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
                 }
               }
               else if (page == MOVEMENT_RIGHT)
