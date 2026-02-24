@@ -33,6 +33,7 @@ TxState txState = TxState::IDLE;
 
 SP::ProtocolParser parser;
 SP::TelemetryPacket cachedTelemetry;
+int32_t cachedConfig[16] = {0};
 SP::SensorPacket cachedSensors;
 bool isDisplayDirty = true;
 uint32_t lastDisplayUpdate = 0;
@@ -184,9 +185,9 @@ bool dispactivate = 1;
 bool displayUpdate = true; // Deprecated, will be removed
 uint8_t settDataIn[40];
 uint16_t SensorsData[14];
-uint8_t settDataMenu[3] = {
-  0,
-};
+// uint8_t settDataMenu[3] = {
+//   0,
+// };
 uint8_t settStatus[5] = {
   0,
 };
@@ -195,8 +196,8 @@ uint8_t DataSend[20] = {
 };
 boolean SensorsDataTrig = false;
 boolean UpdateParam = false;
-uint32_t dist_stop_cv3 = 0;
-uint32_t upl_wait_time = 0;
+// uint32_t dist_stop_cv3 = 0;
+// uint32_t upl_wait_time = 0;
 
 uint8_t ShuttGetsData[6];
 
@@ -671,7 +672,10 @@ void loop()
         if (showQueueFull) {
             u8g2.setCursor(0, 40);
             u8g2.print("! QUEUE FULL !");
-            if (millis() - queueFullTimer > 2000) showQueueFull = false;
+            if (millis() - queueFullTimer > 2000) {
+                showQueueFull = false;
+                isDisplayDirty = true;
+            }
         } else if (cachedTelemetry.errorCode)
         {
           u8g2.setCursor(0, 40);
@@ -1002,7 +1006,13 @@ void loop()
       }
       else if (page == DEBUG_INFO && cursorPos == 2)
       {
-        // Legacy DATCHIK display removed
+        u8g2.setFont(u8g2_font_6x13_t_cyrillic);
+        for(int i=0; i<8; i++) {
+            bool state = (cachedSensors.hardwareFlags & (1 << i)) != 0;
+            u8g2.setCursor(2, 10 + i*10);
+            if (i == 0) u8g2.print(String(state) + " DATCHIK_F1");
+            else u8g2.print(String(state) + " SENSOR_" + String(i));
+        }
       }
 
       else if (page == SYSTEM_SETTINGS_WARN)
@@ -1033,18 +1043,18 @@ void loop()
         {
           strmenu[0] = " Пар-ры считаны";
         }
-        strmenu[1] = " Номер шатт " + String(settDataMenu[0]);
-        strmenu[2] = " Номер экр " + String(settDataMenu[1]);
-        strmenu[3] = " away_set " + String(bitRead(settDataMenu[2], 0));
-        strmenu[4] = " enc_invers " + String(bitRead(settDataMenu[2], 1));
-        strmenu[5] = " slim " + String(bitRead(settDataMenu[2], 2));
-        strmenu[6] = " d_canal_off " + String(bitRead(settDataMenu[2], 3));
-        strmenu[7] = " away_filifo " + String(bitRead(settDataMenu[2], 4));
-        strmenu[8] = " FIFO_MODE " + String(bitRead(settDataMenu[2], 5));
-        strmenu[9] = " demo_en " + String(bitRead(settDataMenu[2], 6));
-        strmenu[10] = " crane_stat " + String(bitRead(settDataMenu[2], 7));
-        strmenu[11] = " stop_aft_pall " + String(dist_stop_cv3);
-        strmenu[12] = " upl_wait " + String(upl_wait_time);
+        strmenu[1] = " Номер шатт " + String(cachedConfig[SP::CFG_SHUTTLE_NUM]);
+        strmenu[2] = " Номер экр " + String(cachedConfig[SP::CFG_CHNL_OFFSET]);
+        strmenu[3] = " away_set -"; // + String(bitRead(settDataMenu[2], 0));
+        strmenu[4] = " enc_invers " + String(cachedConfig[SP::CFG_REVERSE_MODE]);
+        strmenu[5] = " slim -"; // + String(bitRead(settDataMenu[2], 2));
+        strmenu[6] = " d_canal_off -"; // + String(bitRead(settDataMenu[2], 3));
+        strmenu[7] = " away_filifo -"; // + String(bitRead(settDataMenu[2], 4));
+        strmenu[8] = " FIFO_MODE " + String(cachedConfig[SP::CFG_FIFO_LIFO]);
+        strmenu[9] = " demo_en -"; // + String(bitRead(settDataMenu[2], 6));
+        strmenu[10] = " crane_stat -"; // + String(bitRead(settDataMenu[2], 7));
+        strmenu[11] = " stop_aft_pall " + String(cachedConfig[SP::CFG_INTER_PALLET]);
+        strmenu[12] = " upl_wait " + String(cachedConfig[SP::CFG_WAIT_TIME]);
         strmenu[13] = " pall_plk " + String(pallet_plank);
         strmenu[14] = " pall_800 " + String(pallet_800_only);
         strmenu[15] = R_VERSION;
@@ -2429,19 +2439,22 @@ void processTxQueue() {
     if (txHead != txTail) {
       TxJob* job = &txQueue[txHead];
 
-      Serial2.write(job->txBuffer, job->txLength);
-
-      job->lastTxTime = millis();
-      txState = TxState::WAITING_ACK;
+      if (Serial2.availableForWrite() >= job->txLength) {
+          Serial2.write(job->txBuffer, job->txLength);
+          job->lastTxTime = millis();
+          txState = TxState::WAITING_ACK;
+      }
     }
   } else if (txState == TxState::WAITING_ACK) {
     if (txHead != txTail) {
       TxJob* job = &txQueue[txHead];
       if (millis() - job->lastTxTime > 500) {
         if (job->retryCount < 3) {
-          job->retryCount++;
-          Serial2.write(job->txBuffer, job->txLength);
-          job->lastTxTime = millis();
+          if (Serial2.availableForWrite() >= job->txLength) {
+              job->retryCount++;
+              Serial2.write(job->txBuffer, job->txLength);
+              job->lastTxTime = millis();
+          }
         } else {
           txState = TxState::TIMEOUT_ERROR;
         }
@@ -2474,18 +2487,35 @@ void handleRx() {
 
         case SP::MSG_HEARTBEAT:
           {
-            if (memcmp(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket)) != 0) {
-                memcpy(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket));
-                isDisplayDirty = true;
+            if (header->length == sizeof(SP::TelemetryPacket)) {
+                if (memcmp(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket)) != 0) {
+                    memcpy(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket));
+                    isDisplayDirty = true;
+                }
             }
           }
           break;
 
         case SP::MSG_SENSORS:
           {
-            if (memcmp(&cachedSensors, payload, sizeof(SP::SensorPacket)) != 0) {
-                memcpy(&cachedSensors, payload, sizeof(SP::SensorPacket));
-                isDisplayDirty = true;
+            if (header->length == sizeof(SP::SensorPacket)) {
+                if (memcmp(&cachedSensors, payload, sizeof(SP::SensorPacket)) != 0) {
+                    memcpy(&cachedSensors, payload, sizeof(SP::SensorPacket));
+                    isDisplayDirty = true;
+                }
+            }
+          }
+          break;
+
+        case SP::MSG_CONFIG_REP:
+          {
+            if (header->length == sizeof(SP::ConfigPacket)) {
+                SP::ConfigPacket* pkt = (SP::ConfigPacket*)payload;
+                if (pkt->paramID < 16) {
+                    cachedConfig[pkt->paramID] = pkt->value;
+                    UpdateParam = true;
+                    isDisplayDirty = true;
+                }
             }
           }
           break;
