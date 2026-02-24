@@ -109,3 +109,32 @@
 - **Compilation Verification:** As the environment lacks `arduino-cli`, changes are verified via code reading. Real compilation test is required.
 - **Legacy Logic:** Some legacy logic (e.g. `shuttleStatus == 10` manual counting in `case 'C'`) was commented out or replaced with tentative logic. Needs verification on hardware.
 - **Warning Codes:** Legacy `warncode` was removed. Error display now relies on `cachedTelemetry.errorCode`. Verify if specific warnings from `WarnMsgArray` need to be mapped to `errorCode` or `MSG_LOG`.
+
+# Refactoring Work Log - Task 3 Hardware Initialization & NVS (Preferences) Migration
+
+## Step 1: Isolate LoRa Module Initialization
+- **Objective:** Prevent E32 configuration bytes from interfering with ProtocolParser and ensure clean state.
+- **Actions Taken:**
+    - Created dedicated `initRadio()` function to handle E32 configuration.
+    - Moved pin toggling and `configArray` transmission from `setup()` to `initRadio()`.
+    - Added UART flush (flush + read loop) in `initRadio()` to clear any garbage/response from the module before async operation begins.
+    - Called `initRadio()` in `setup()` before UI or async tasks.
+
+## Step 2: Migrate to ESP32 Preferences API
+- **Objective:** Replace deprecated `EEPROM` with robust `Preferences` API.
+- **Actions Taken:**
+    - Removed `<EEPROM.h>`, added `<Preferences.h>`.
+    - Instantiated global `Preferences prefs`.
+    - Initialized `prefs.begin("pult_cfg", false)` in `setup()`.
+    - Replaced `EEPROM` reads in `setup()` with `prefs.getUInt` for `shuttleNumber`, `pass_menu`, and `channelNumber`.
+    - Updated `keypadEvent()`:
+        - Replaced `EEPROM.write` for `CHANGE_SHUTTLE_NUM` with `prefs.putUInt`.
+        - Replaced `EEPROM.write` for `CHANGE_CHANNEL` with `prefs.putUInt`.
+        - Replaced `EEPROM.write` for `MENU_PROTECTION` (pass menu toggle) with `prefs.putUInt`.
+        - Ensured `initRadio()` is called immediately after `CHANGE_CHANNEL` to apply new settings.
+    - Removed legacy debug code in `loop()` that relied on `EEPROM`.
+
+## Verification
+- Verified by code reading: No references to `EEPROM` remain.
+- Validated logic flow: `initRadio` flushes buffer, ensuring ProtocolParser starts clean.
+- NVS writes are non-blocking (relative to old EEPROM commit) and use key-value storage.
