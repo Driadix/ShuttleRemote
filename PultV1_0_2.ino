@@ -56,11 +56,9 @@ const int configArrayStartAddress = addr0 + 4;
 uint8_t channelNumber = configArray[4];
 uint8_t tempChannelNumber = channelNumber;
 uint8_t logWrite = 0;
-bool isConfigArrayChanged = false;
 U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/18, /* data=*/23, /* cs=*/2, /* dc=*/19, /* reset=*/4);
 #define R_VERSION   " v1.0 2023"
 #define GETDATACODE 94
-byte I2CADDR = 0x38;
 int pin_code = 1441;
 uint8_t pass_menu = 1;
 uint8_t pass_menu_trig = 0;
@@ -68,14 +66,6 @@ int temp_pin_code = 0;
 int8_t temp_pin[4] = {
   0,
 };
-
-const char *ssid = "ESP32UPDATE";
-const char *password = "1234567890";
-const int channel = 10;        // WiFi Channel number between 1 and 13
-const bool hide_SSID = false;  // To disable SSID broadcast -> SSID will not appear in a basic WiFi scan
-const int max_connection = 2;
-
-AsyncWebServer server(80);
 
 #define BUTTON_PIN_BITMASK 0x308005000  // GPIOs 12, 14, 27, 33, 32
 
@@ -174,36 +164,21 @@ bool isUpdateStarted = false;
 
 int mpr = 0;
 int newMpr = 0;
-bool calibr = false;
 uint8_t inputQuant = 0;
 int8_t numquant1 = 0;
 int8_t numquant2 = 0;
 bool fifolifo = false;
-bool rfLink = true;
 bool displayActive = true;
 bool manualMode = false;
 String manualCommand = " ";
 String shuttnumst = "A1";
 String shuttnewnumst = "A1";
 bool dispactivate = 1;
-bool displayUpdate = true; // Deprecated, will be removed
-uint8_t settDataIn[40];
-uint16_t SensorsData[14];
 // uint8_t settDataMenu[3] = {
 //   0,
 // };
-uint8_t settStatus[5] = {
-  0,
-};
-uint8_t DataSend[20] = {
-  0,
-};
 boolean SensorsDataTrig = false;
 boolean UpdateParam = false;
-// uint32_t dist_stop_cv3 = 0;
-// uint32_t upl_wait_time = 0;
-
-uint8_t ShuttGetsData[6];
 
 const int rfout0 = 15;  // D3
 const int Battery_Pin = 36;
@@ -214,24 +189,13 @@ const int LedWiFi_Pin = 22;
 // const int rfout = D4;
 String Serial2in = "";
 
-long interval = 1000;
-long RSSI = 0;
-// int bars = 0;
-int bares = 0;
-uint8_t invMode;
-uint8_t speedCurr;
-// int8_t shuttleBattery = -1; // Removed
-// uint16_t errorcode; // Removed
 // uint8_t warncode; // Removed
-String tempcode;
 uint8_t countcharge = 0;  // count repeat request charge and status
 int16_t speedset = 10;
 int16_t newspeedset = 0;
-uint8_t palletconf = 0;       // get quant pallets
 uint8_t shuttbackaway = 100;  //отступ от края 800 паллета FIFO/LIFO
 // uint8_t fifolifo_mode = 0;    // Removed
 String palletconfst = "0";
-bool blink = 0;
 bool showarn = false;
 bool warnblink = false;
 int8_t chargercount = 0;
@@ -247,10 +211,6 @@ char currentKey;
 
 // byte Buffer[10];
 
-String inputString = "";         // a String to hold incoming data from Serial2
-boolean stringComplete = false;  // whether the string is complete
-
-String connectionStatus;
 const String shuttleStatusArray[19] = { "Запрос статуса", "Ручной режим",      "Загрузка",      "Выгрузка",
                                         "Уплотнение",     "Эвакуация",         "DEMO",          "Подсчет паллет",
                                         "Испытания",      "Обнаружены ошибки", "Ожидание...",   "Прод. загрузка",
@@ -280,9 +240,6 @@ const String shuttnum[32] = { "A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8", "I
                               "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32" };
 const uint8_t shuttnumLength = sizeof(shuttnum) / sizeof(shuttnum[0]);
 
-const String num_no_yes[2] = { "НЕТ", "ДА" };
-
-uint8_t evacuatstatus = 0;
 // uint8_t shuttleStatus = 0; // Removed
 uint8_t lowbatt = 20;
 uint8_t newlowbatt = 100;
@@ -295,10 +252,6 @@ int8_t newmproffset = 120;
 int8_t chnloffset = 0;
 int8_t newchnloffset = 120;
 int chargact = 0;
-uint8_t testnum = 1;
-int testtimer1 = 0;
-int testtimer2 = 0;
-int testrepeat = 1;
 int warntimer = millis();
 int uctimer = warntimer;
 
@@ -315,7 +268,6 @@ unsigned long shuttnumOffInterval = 0;
 unsigned long blinkshuttnumInterval = 0;
 
 unsigned long Elapsed;  // To calc the execution time
-int LastStatus = -1;    // To force the first print
 int8_t minlevel = 31;
 
 uint8_t errn = 1;
@@ -323,8 +275,6 @@ uint8_t warrn = 0;
 uint8_t prevpercent = 100;
 uint8_t cyclegetcharge = 0;
 String strmenu[20];
-uint32_t statistic[10];  // = {0,0,0,0,0,0,0,0,0,0};
-uint8_t odometr_pos = 0;
 Page pageAfterPin = MAIN;
 #pragma endregion
 
@@ -332,10 +282,6 @@ Page pageAfterPin = MAIN;
 void cmdSend(uint8_t numcmd);
 int getVoltage();
 void keypadEvent(KeypadEvent key);
-void PinSetpcf();
-void MarkTime();
-void ShowTime();
-void GetSerial2Data();
 void SetSleep();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
@@ -2335,29 +2281,6 @@ void keypadEvent(KeypadEvent key)
     default: break;
   }
 }
-void PinSetpcf()
-{
-  for (uint8_t i = 0; i < 8; i++)
-  {
-    if (i > 3 && i < 7)
-    {
-      kpd.pin_mode(i, OUTPUT);
-      kpd.pin_write(i, LOW);
-    }
-    else
-    {
-      kpd.pin_mode(i, INPUT_PULLUP);
-    }
-  }
-}
-void MarkTime() { Elapsed = millis(); }
-
-void ShowTime()
-{
-  // Calcs the time
-  Elapsed = millis() - Elapsed;
-}
-
 
 bool queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
   uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
