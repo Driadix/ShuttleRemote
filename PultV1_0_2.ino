@@ -1,6 +1,6 @@
 #include <AsyncElegantOTA.h>
 #include <AsyncTCP.h>
-#include <EEPROM.h>
+#include <Preferences.h>
 #include <ESPAsyncWebServer.h>
 #include <Keypad.h>
 #include <SPI.h>
@@ -32,6 +32,7 @@ uint8_t txTail = 0;
 TxState txState = TxState::IDLE;
 
 SP::ProtocolParser parser;
+Preferences prefs;
 SP::TelemetryPacket cachedTelemetry;
 int32_t cachedConfig[16] = {0};
 SP::SensorPacket cachedSensors;
@@ -344,6 +345,22 @@ bool queueRequest(uint8_t msgID, uint8_t targetID);
 #pragma endregion
 
 #pragma region setup
+
+void initRadio() {
+  digitalWrite(rfout0, HIGH);
+  delay(1000);
+  Serial.println("Write LoRa settings...");
+  Serial2.write(configArray, sizeof(configArray));
+  delay(100);
+  digitalWrite(rfout0, LOW);
+
+  // Flush buffer to remove any config response or garbage
+  Serial2.flush();
+  while (Serial2.available()) {
+    Serial2.read();
+  }
+}
+
 void setup()
 {
   page = MAIN;
@@ -374,31 +391,13 @@ void setup()
   delay(100);
 
   displayActive = true;
-  EEPROM.begin(10);
-  uint8_t shtnum = EEPROM.read(addr0);
-  pass_menu = EEPROM.read(addr0 + 1);
-  if (pass_menu != 0 && pass_menu != 1) pass_menu = 1;
-  if (shtnum == 0 || shtnum > shuttnumLength)
-  {
-    shtnum = 1;
-    EEPROM.write(addr0, shuttleNumber);
-    delay(50);
-  }
-  else
-    shuttleNumber = shtnum;
-  if (EEPROM.read(configArrayStartAddress) == 0xC0 || EEPROM.read(configArrayStartAddress) == 0xC2)
-  {
-    for (int i = 0; i < sizeof(configArray); i++)
-    {
-      configArray[i] = EEPROM.read(configArrayStartAddress + i);
-    }
-    if (channelNumber != configArray[4])
-    {
-      channelNumber = configArray[4];
-      tempChannelNumber = channelNumber;
-    }
-  }
-  EEPROM.end();
+
+  prefs.begin("pult_cfg", false);
+  shuttleNumber = (int8_t)prefs.getUInt("sht_num", 1);
+  pass_menu = (uint8_t)prefs.getUInt("pass_menu", 1);
+  channelNumber = (uint8_t)prefs.getUInt("rf_chan", configArray[4]);
+  configArray[4] = channelNumber;
+  tempChannelNumber = channelNumber;
 
   delay(50);
   kpd.addEventListener(keypadEvent);
@@ -436,23 +435,7 @@ void setup()
   gpio_set_pull_mode((gpio_num_t)33, GPIO_PULLDOWN_ONLY);
   gpio_hold_dis((gpio_num_t)33);
   esp_sleep_enable_ext1_wakeup(BUTTON_PIN_BITMASK, ESP_EXT1_WAKEUP_ANY_HIGH);
-  // Прописываем параметры связи радиомодуля
-  digitalWrite(rfout0, HIGH);
-  delay(1000);
-  Serial.println("Write LoRa settings...");
-  Serial2.write(configArray, sizeof(configArray));
-  delay(100);
-  Serial2.write(0xC1);
-  Serial2.write(0xC1);
-  Serial2.write(0xC1);
-  delay(25);
-  while (Serial2.available())  // Получаем параметры и выводим их в монитор порта
-  {
-    int8_t inByte = Serial2.read();
-    Serial.print(inByte, HEX);
-    Serial.print(" ");
-  }
-  digitalWrite(rfout0, LOW);
+  initRadio();
 
   AsyncElegantOTA.onStarted([]() { isOtaUpdating = true; });
   AsyncElegantOTA.onEnd([]() { isOtaUpdating = false; });
@@ -472,10 +455,6 @@ void loop()
       Serial.print(" ");
     }
     isFabala = false;
-    EEPROM.begin(10);
-    Serial.print(" EEPROM CHANNEL: ");
-    Serial.print(EEPROM.read(configArrayStartAddress + 4));
-    EEPROM.end();
     Serial.print(" | ");
   }
 
@@ -1381,9 +1360,7 @@ void keypadEvent(KeypadEvent key)
         else if (key == 'D' && hideshuttnum)
         {
           shuttleNumber = shuttleTempNum;
-          EEPROM.begin(4);
-          EEPROM.write(addr0, shuttleNumber);
-          EEPROM.end();
+          prefs.putUInt("sht_num", shuttleNumber);
           newMpr = 0;
           inputQuant = 0;
           newshuttleLength = 0;
@@ -1432,9 +1409,7 @@ void keypadEvent(KeypadEvent key)
             shuttleNumber = shuttleTempNum;
             shuttnewnumst = shuttnum[shuttleTempNum - 1];
             cmdSend(17);
-            EEPROM.begin(4);
-            EEPROM.write(addr0, shuttleNumber);
-            EEPROM.end();
+            prefs.putUInt("sht_num", shuttleNumber);
             newMpr = 0;
             inputQuant = 0;
             newshuttleLength = 0;
@@ -1468,17 +1443,8 @@ void keypadEvent(KeypadEvent key)
           {
             channelNumber = tempChannelNumber;
             configArray[4] = channelNumber;
-            Serial2.write(configArray, sizeof(configArray));
-            EEPROM.begin(10);
-            for (uint8_t i = 0; i < sizeof(configArray); i++)
-            {
-              if (EEPROM.read(configArrayStartAddress + i) != configArray[i])
-              {
-                EEPROM.write(configArrayStartAddress + i, configArray[i]);
-              }
-            }
-            EEPROM.write(configArrayStartAddress + 4, channelNumber);
-            EEPROM.end();
+            prefs.putUInt("rf_chan", channelNumber);
+            initRadio();
             isFabala = true;
             delay(300);
             // cmdStatus();
@@ -1737,9 +1703,7 @@ void keypadEvent(KeypadEvent key)
                       pass_menu = 0;
                     else
                       pass_menu = 1;
-                    EEPROM.begin(4);
-                    EEPROM.write(addr0 + 1, pass_menu);
-                    EEPROM.end();
+                    prefs.putUInt("pass_menu", pass_menu);
                     delay(50);
                     page = ADDITIONAL_FUNCTIONS;
                     cursorPos = 1;
