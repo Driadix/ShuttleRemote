@@ -11,7 +11,7 @@ public:
     void tick();
 
     // --- Sending Methods ---
-    bool sendCommand(SP::CommandPacket packet);
+    bool sendCommand(SP::CommandPacket packet, uint8_t maxRetries = 1, uint16_t ackTimeoutMs = 250);
     bool sendRequest(uint8_t msgID, uint8_t maxRetries = 3);
     bool sendConfigSet(uint8_t paramID, int32_t value);
     bool sendConfigGet(uint8_t paramID);
@@ -43,6 +43,7 @@ private:
         uint32_t lastTxTime;
         uint8_t retryCount;
         uint8_t maxRetries;
+        uint16_t ackTimeoutMs;
         bool cancelled;
     };
     static const uint8_t MAX_JOBS = 8;
@@ -55,7 +56,7 @@ private:
     uint8_t _nextSeqNum;
 
     // --- Internal Helpers ---
-    bool enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries = 3);
+    bool enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries = 3, uint16_t ackTimeoutMs = 500);
     void processTxQueue();
     void handleRx();
     void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
