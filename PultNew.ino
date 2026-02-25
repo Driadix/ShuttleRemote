@@ -74,6 +74,9 @@ void setup()
   btStop();
   Serial.print("Start");
 
+  SPI.begin(18, 35, 23, 2);
+  delay(100);
+
   u8g2.begin();
   u8g2.enableUTF8Print();
 #ifndef mk
