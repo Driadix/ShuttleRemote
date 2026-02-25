@@ -39,12 +39,13 @@ void DashboardScreen::draw(U8G2& display) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1); // White text
 
+    char buf[64];
+
     if (!DataManager::getInstance().isConnected()) {
         display.drawStr(0, 25, "Подключение..."); // Connecting...
         // Hide movement animations when disconnected
     } else {
         const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
-        char buf[64];
 
         // 2. Main Status
         if (cachedTelemetry.shuttleStatus == 13) {
