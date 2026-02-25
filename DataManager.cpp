@@ -91,6 +91,14 @@ void DataManager::tick() {
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     LOG_D("DATA", "Dispatching command: MSG_COMMAND (Type: %d) to CommLink", (int)cmd);
 
+    // SAFETY INTERLOCK: Drop all action commands if not connected
+    // (We allow SP::MSG_REQ_HEARTBEAT or STATS or SENSORS to pass through for discovery,
+    // but those are sent via sendRequest(), not sendCommand())
+    if (!_model.isConnected()) {
+        LOG_W("DATA", "Safety Interlock: Command %d blocked. Shuttle disconnected.", (int)cmd);
+        return false;
+    }
+
     // Preemption: clear previous user commands to enforce "Latest Intent Wins"
     _commLink.clearPendingCommands();
     _lastUserCommandType = cmd;
