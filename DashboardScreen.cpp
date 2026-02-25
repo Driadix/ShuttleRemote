@@ -5,11 +5,11 @@
 #include "Lang_RU.h"
 
 DashboardScreen::DashboardScreen()
-    : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false) {
+    : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), _animX(0), _animFlagX(0), _lastAnimTick(0) {
 }
 
 void DashboardScreen::onEnter() {
-    Screen::onEnter(); // Sets _fullRedrawNeeded = true
+    Screen::onEnter();
     EventBus::subscribe(this);
 }
 
@@ -31,16 +31,6 @@ void DashboardScreen::onEvent(SystemEvent event) {
 }
 
 void DashboardScreen::draw(U8G2& display) {
-    if (_fullRedrawNeeded) {
-        display.clearBuffer();
-    }
-
-    // 1. Draw Status Bar (Always redraws its area)
-    // We should clear its area if partial?
-    // StatusBarWidget::draw should handle its own clearing.
-    // I will assume for now I need to clear it here if StatusBarWidget doesn't.
-    // Step 5 says "Update StatusBarWidget.cpp: Implement partial redraw logic".
-    // So I can just call draw.
     _statusBar.draw(display, 0, 0);
 
     const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
@@ -49,14 +39,6 @@ void DashboardScreen::draw(U8G2& display) {
     display.setDrawColor(1); // White text
 
     // 2. Main Status
-    // Area: 0, 25, width?, height 13?
-    // If partial, clear the box.
-    if (!_fullRedrawNeeded) {
-        display.setDrawColor(0);
-        display.drawBox(0, 15, 128, 15); // Clear status line area (approx)
-        display.setDrawColor(1);
-    }
-
     display.setCursor(0, 25);
     if (cachedTelemetry.shuttleStatus == 13)
         display.print("Осталось выгрузить " + String(cachedTelemetry.palleteCount));
@@ -66,13 +48,6 @@ void DashboardScreen::draw(U8G2& display) {
         display.print("Status: " + String(cachedTelemetry.shuttleStatus));
 
     // 3. Warnings / Queue Full / Errors
-    // Area: 0, 40...
-    if (!_fullRedrawNeeded) {
-        display.setDrawColor(0);
-        display.drawBox(0, 30, 128, 15); // Clear error line area
-        display.setDrawColor(1);
-    }
-
     display.setCursor(0, 40);
     if (_showQueueFull) {
         display.print("! QUEUE FULL !");
@@ -96,81 +71,31 @@ void DashboardScreen::draw(U8G2& display) {
 }
 
 void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket& cachedTelemetry) {
-    // Animation area
-    // Needs clearing if partial
-    if (!_fullRedrawNeeded) {
-        display.setDrawColor(0);
-        display.drawBox(0, 40, 128, 24); // Bottom area
-        display.setDrawColor(1);
-    }
-    // Note: The previous logic drew boxes at specific coordinates.
-    // If I clear the bottom area, I might wipe the "Error" text if it overlaps.
-    // Error text is at y=40 (baseline). Font height ~13. Top ~27.
-    // Animation is at y=40, 45...
-    // They overlap?
-    // "display.setCursor(0, 40);" -> Baseline 40. Extends up to ~28.
-    // Animation: "display.drawBox(x, 40, 28, 5);" -> Top 40. Extends down to 45.
-    // So they don't overlap vertically (Text ends at 40, Box starts at 40).
-    // My clear box for errors was "0, 30, 128, 15" -> 30 to 45.
-    // This wipes the animation top part!
-    // I need to be more precise.
-
-    // Let's rely on _fullRedrawNeeded logic for simplicity for now, but strictly speaking
-    // I should clear only what I overwrite.
-    // For this task, I've implemented the structure. Optimizing pixel-perfect clearing is iterative.
-    // I'll stick to a safe clear.
-
-    // ... (Legacy animation logic) ...
     if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6)
     {
-        static uint8_t x = 0;
-        static uint8_t flagx = 0;
-        display.drawBox(x, 40, 28, 5);
-        display.drawBox(x + 4, 45, 3, 2);
-        display.drawBox(x + 21, 45, 3, 2);
-        if (flagx == 0 && x < 128)
-            x++;
-        else
-        {
-            flagx = 1;
-            display.drawBox(x, 34, 28, 3);
-            display.drawBox(x, 37, 3, 3);
-            display.drawBox(x + 13, 37, 3, 3);
-            display.drawBox(x + 25, 37, 3, 3);
-            x--;
+        display.drawBox(_animX, 40, 28, 5);
+        display.drawBox(_animX + 4, 45, 3, 2);
+        display.drawBox(_animX + 21, 45, 3, 2);
+
+        if (_animFlagX == 1) {
+            display.drawBox(_animX, 34, 28, 3);
+            display.drawBox(_animX, 37, 3, 3);
+            display.drawBox(_animX + 13, 37, 3, 3);
+            display.drawBox(_animX + 25, 37, 3, 3);
         }
-        if (flagx == 1 && x == 0)
-        {
-            flagx = 0;
-        }
-        // Force redraw for animation
-        setDirty();
     }
     else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12)
     {
-        static uint8_t x = 128;
-        static uint8_t flagx = 1;
-        display.drawBox(x, 40, 28, 5);
-        display.drawBox(x + 4, 45, 3, 2);
-        display.drawBox(x + 21, 45, 3, 2);
+        display.drawBox(_animX, 40, 28, 5);
+        display.drawBox(_animX + 4, 45, 3, 2);
+        display.drawBox(_animX + 21, 45, 3, 2);
 
-        if (flagx == 1 && x > 1)
-            x--;
-        else
-        {
-            flagx = 0;
-            display.drawBox(x, 34, 28, 3);
-            display.drawBox(x, 37, 3, 3);
-            display.drawBox(x + 13, 37, 3, 3);
-            display.drawBox(x + 25, 37, 3, 3);
-            x++;
+        if (_animFlagX == 0) {
+            display.drawBox(_animX, 34, 28, 3);
+            display.drawBox(_animX, 37, 3, 3);
+            display.drawBox(_animX + 13, 37, 3, 3);
+            display.drawBox(_animX + 25, 37, 3, 3);
         }
-        if (flagx == 0 && x == 127)
-        {
-            flagx = 1;
-        }
-        // Force redraw for animation
-        setDirty();
     }
 }
 
@@ -289,4 +214,39 @@ void DashboardScreen::tick() {
     }
 
     DataManager::getInstance().setManualMoveMode(_isManualMoving);
+
+    // Animation Tick (e.g., 50ms for smooth 20fps)
+    if (millis() - _lastAnimTick > 50) {
+        _lastAnimTick = millis();
+        bool animChanged = false;
+
+        const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
+        if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6) {
+            // Forward animation logic
+            if (_animFlagX == 0 && _animX < 128) {
+                _animX++;
+            } else {
+                _animFlagX = 1;
+                _animX--;
+            }
+            if (_animFlagX == 1 && _animX == 0) {
+                _animFlagX = 0;
+            }
+            animChanged = true;
+        } else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12) {
+            // Reverse animation logic
+            if (_animFlagX == 1 && _animX > 1) {
+                _animX--;
+            } else {
+                _animFlagX = 0;
+                _animX++;
+            }
+            if (_animFlagX == 0 && _animX == 127) {
+                _animFlagX = 1;
+            }
+            animChanged = true;
+        }
+
+        if (animChanged) setDirty();
+    }
 }

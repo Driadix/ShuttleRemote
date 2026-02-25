@@ -24,4 +24,9 @@ private:
     String _manualCommand;
     uint32_t _queueFullTimer;
     bool _showQueueFull;
+
+    // Animation State
+    uint8_t _animX;
+    uint8_t _animFlagX;
+    uint32_t _lastAnimTick;
 };

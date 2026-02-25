@@ -62,11 +62,6 @@ bool ScrollingListWidget::handleInput(InputEvent event) {
 }
 
 void ScrollingListWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
-    // Clear background
-    display.setDrawColor(0);
-    display.drawBox(x, y, _width, _height);
-    display.setDrawColor(1);
-
     display.setFont(u8g2_font_6x13_t_cyrillic);
     const uint8_t lineHeight = 14;
 

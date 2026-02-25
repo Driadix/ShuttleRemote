@@ -10,7 +10,6 @@ OptionsScreen::OptionsScreen()
 }
 
 void OptionsScreen::onEnter() {
-    Screen::onEnter();
     EventBus::subscribe(this);
 
     // Request config params to ensure fresh data
@@ -21,7 +20,6 @@ void OptionsScreen::onEnter() {
 }
 
 void OptionsScreen::onExit() {
-    Screen::onExit();
     EventBus::unsubscribe(this);
 }
 
@@ -50,29 +48,6 @@ void OptionsScreen::provideMenuItem(uint8_t index, char* buffer) {
 }
 
 void OptionsScreen::draw(U8G2& display) {
-    if (_fullRedrawNeeded) {
-        display.clearBuffer();
-    }
-
-    // Partial updates: We should clear if needed.
-    // ListWidget draws items.
-    // If we rely on _fullRedrawNeeded, it clears.
-    // If partial (config update), we redraw everything over previous.
-    // U8g2 without clearBuffer might leave artifacts if text length decreases.
-    // ScrollingListWidget should ideally clear its row.
-    // But since this screen is simple, full redraw on update is acceptable or we rely on overwriting with spaces?
-    // "MPR: 100 mm" -> "MPR: 90 mm ".
-    // Creating "clearing" strings is annoying.
-    // The user suggested drawing black box.
-    // ScrollingListWidget doesn't support that yet.
-    // For now, let's force full redraw on config change?
-    // `setDirty()` doesn't set `_fullRedrawNeeded`.
-    // But `OptionsScreen` covers full screen.
-    // If I want to clear, I can do `display.clearBuffer()` here manually if I want.
-    // But to respect the "Partial" goal:
-    // I will let it overdraw.
-    // To prevent artifacts, I should clear the list area.
-
     _statusBar.draw(display, 0, 0);
     _menuList.draw(display, 0, 16);
 }

@@ -28,7 +28,7 @@ int addr0 = 0;
 
 // Config Array Replaced by Local Generation in initRadio()
 uint8_t logWrite = 0;
-U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/18, /* data=*/23, /* cs=*/2, /* dc=*/19, /* reset=*/4);
+U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 2, /* dc=*/ 19, /* reset=*/ 4);
 #define R_VERSION   " v1.0 2023"
 
 int pin_code = 1441;
