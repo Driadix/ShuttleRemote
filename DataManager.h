@@ -1,10 +1,9 @@
 #pragma once
 #include <Arduino.h>
-
-// Define namespace SP for ShuttleProtocol types
-namespace SP {
-#include "ShuttleProtocol.h"
-}
+#include "CommLink.h"
+#include "TelemetryModel.h"
+#include "UartTransport.h"
+#include "ShuttleProtocolTypes.h"
 
 class DataManager {
 public:
@@ -35,7 +34,8 @@ public:
     int32_t getConfig(uint8_t index) const;
     uint8_t getShuttleNumber() const;
 
-    // --- Dirty Flags (Atomic Check-and-Clear) ---
+    // --- Dirty Flags (Legacy / Event Bridge) ---
+    // Deprecated: Screens should use EventBus, but kept for compatibility during migration
     bool consumeTelemetryDirtyFlag();
     bool consumeSensorsDirtyFlag();
     bool consumeStatsDirtyFlag();
@@ -55,54 +55,15 @@ private:
     DataManager(const DataManager&) = delete;
     DataManager& operator=(const DataManager&) = delete;
 
-    // --- Internal Types ---
-    enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
-
-    struct TxJob {
-      uint8_t txBuffer[64];
-      uint8_t txLength;
-      uint8_t seqNum;
-      uint32_t lastTxTime;
-      uint8_t retryCount;
-    };
-
     // --- Internal Logic ---
-    bool queueCommandInternal(SP::CommandPacket packet);
-    bool queueRequestInternal(uint8_t msgID);
-    bool queueConfigSetInternal(uint8_t paramID, int32_t value);
-    bool queueConfigGetInternal(uint8_t paramID);
-
-    void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
-    void handleRx();
-    void processTxQueue();
     void updatePolling();
 
-    // --- Members ---
-    HardwareSerial* _serial;
-    SP::ProtocolParser _parser;
+    // --- Components ---
+    UartTransport* _transport;
+    CommLink* _commLink;
+    TelemetryModel* _model;
 
-    // Data Caches
-    SP::TelemetryPacket _telemetry;
-    SP::SensorPacket _sensors;
-    SP::StatsPacket _stats;
-    int32_t _config[16];
-
-    // Dirty Flags
-    bool _telemetryDirty;
-    bool _sensorsDirty;
-    bool _statsDirty;
-    bool _configDirty;
-
-    // TX Queue
-    static const int TX_QUEUE_SIZE = 5;
-    TxJob _txQueue[TX_QUEUE_SIZE];
-    uint8_t _txHead;
-    uint8_t _txTail;
-    TxState _txState;
-    uint8_t _nextSeqNum;
-
-    // State / Context
-    uint8_t _shuttleNumber;
+    // --- State / Context ---
     bool _isOtaUpdating;
     bool _isManualMoving;
     PollContext _pollContext;
@@ -113,4 +74,39 @@ private:
     uint32_t _lastStatsPollTime;
     uint32_t _manualHeartbeatTimer;
     uint32_t _currentPollInterval;
+
+    // --- Legacy Dirty Flags (Managed by EventListener internally if needed, or just removed if screens updated) ---
+    // To support legacy consume*DirtyFlag, we can subscribe DataManager to EventBus or just query Model?
+    // Actually, the simplest way is to have DataManager listen to EventBus and set these flags.
+    // Or, update TelemetryModel to have dirty flags? No, model should be pure.
+    // I'll make DataManager an EventListener for backward compatibility!
+    // But DataManager is a singleton, so it can subscribe itself.
+
+    // Actually, I'll implement EventListener interface privately to update flags.
+    // But since I'm updating screens in step 4, maybe I can remove these?
+    // The plan says "Keep the public API backward compatible".
+    // So I must keep consumeTelemetryDirtyFlag.
+    // I will implement a private EventListener for DataManager or just set flags when calling updateModel?
+    // No, Model updates via CommLink. DataManager doesn't know when update happens unless it listens.
+    // So DataManager needs to subscribe to EventBus.
+
+    class DataManagerListener : public EventListener {
+    public:
+        DataManagerListener(DataManager* parent) : _parent(parent) {}
+        void onEvent(SystemEvent event) override {
+            if (event == SystemEvent::TELEMETRY_UPDATED) _parent->_telemetryDirty = true;
+            else if (event == SystemEvent::SENSORS_UPDATED) _parent->_sensorsDirty = true;
+            else if (event == SystemEvent::STATS_UPDATED) _parent->_statsDirty = true;
+            else if (event == SystemEvent::CONFIG_UPDATED) _parent->_configDirty = true;
+        }
+    private:
+        DataManager* _parent;
+    };
+
+    friend class DataManagerListener;
+    DataManagerListener* _internalListener;
+    bool _telemetryDirty;
+    bool _sensorsDirty;
+    bool _statsDirty;
+    bool _configDirty;
 };
