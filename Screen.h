@@ -9,16 +9,13 @@ public:
     virtual ~Screen() {}
 
     // Fired when the screen is pushed to the top of the stack
-    virtual void onEnter() {
-        _fullRedrawNeeded = true;
-    }
+    virtual void onEnter() {}
 
     // Fired when the screen is popped from the stack
     virtual void onExit() {}
 
     // Renders the layout to the display buffer. Only called if needsRedraw() is true.
-    // NOTE: ScreenManager no longer clears the buffer automatically.
-    // If _fullRedrawNeeded is true, the implementation MUST clear the buffer (display.clearBuffer()).
+    // ScreenManager automatically clears the buffer before calling this.
     virtual void draw(U8G2& display) = 0;
 
     // Processes logical inputs routed from the InputManager
@@ -44,10 +41,8 @@ public:
     // Clears the dirty flag (called by ScreenManager after a successful render)
     void clearDirty() {
         _needsRedraw = false;
-        _fullRedrawNeeded = false;
     }
 
 protected:
     bool _needsRedraw = true; // Default to true so it draws on first load
-    bool _fullRedrawNeeded = true; // Signals that a full clear/redraw is required
 };

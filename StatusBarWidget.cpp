@@ -4,11 +4,6 @@
 void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     const auto& telemetry = DataManager::getInstance().getTelemetry();
 
-    // Clear background for partial redraw
-    display.setDrawColor(0);
-    display.drawBox(x, y, 128, 14); // Use fixed size or _width/_height
-    display.setDrawColor(1);
-
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 

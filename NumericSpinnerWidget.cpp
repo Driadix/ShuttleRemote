@@ -52,11 +52,6 @@ bool NumericSpinnerWidget::handleInput(InputEvent event) {
 }
 
 void NumericSpinnerWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
-    // Clear background
-    display.setDrawColor(0);
-    display.drawBox(x, y, _width, _height);
-    display.setDrawColor(1);
-
     display.setFont(u8g2_font_9x15_t_cyrillic); // Larger font for numbers
     // 9x15 font. Baseline approx 12px from top.
 
