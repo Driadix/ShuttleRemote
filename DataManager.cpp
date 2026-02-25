@@ -7,7 +7,10 @@ DataManager& DataManager::getInstance() {
 }
 
 DataManager::DataManager()
-    : _isOtaUpdating(false),
+    : _transport(nullptr),
+      _model(),
+      _commLink(&_transport, &_model),
+      _isOtaUpdating(false),
       _isManualMoving(false),
       _pollContext(PollContext::NORMAL),
       _lastPollTime(0),
@@ -16,10 +19,7 @@ DataManager::DataManager()
       _manualHeartbeatTimer(0),
       _currentPollInterval(1500),
       _remoteBatteryLevel(0),
-      _radioChannel(0),
-      _transport(nullptr),
-      _model(),
-      _commLink(&_transport, &_model)
+      _radioChannel(0)
 {
 }
 

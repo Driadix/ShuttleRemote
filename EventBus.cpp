@@ -1,4 +1,3 @@
-#pragma once
 #include "EventBus.h"
 
 EventListener* EventBus::_listeners[EventBus::MAX_LISTENERS] = {nullptr};
