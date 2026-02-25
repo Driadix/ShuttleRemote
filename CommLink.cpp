@@ -143,20 +143,11 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
         _txWriteIndex = (_txWriteIndex + payloadLen) % TX_BUFFER_SIZE;
     }
 
-    // Calculate CRC (Need to read back from buffer to calculate CRC of header+payload!)
-    // To avoid reading back, we can calculate CRC on the fly or use a helper.
-    // The ProtocolUtils::appendCRC expects a contiguous buffer.
-    // Since our buffer might wrap, we can't use appendCRC directly on the ring buffer easily.
-    // However, we can calculate CRC while writing? No.
-    // Let's iterate the virtual buffer from startOffset to calculate CRC.
-
+    // Compute CRC dynamically across the wrapping buffer
     uint16_t crc = 0xFFFF;
     uint16_t idx = startOffset;
-    uint16_t lenCheck = sizeof(header) + payloadLen;
-
-    for (uint16_t i = 0; i < lenCheck; i++) {
-        uint8_t byte = _txRingBuffer[idx];
-        crc = SP::ProtocolUtils::updateCRC16(crc, byte);
+    for (uint16_t i = 0; i < sizeof(header) + payloadLen; i++) {
+        crc = SP::ProtocolUtils::updateCRC16(crc, _txRingBuffer[idx]);
         idx = (idx + 1) % TX_BUFFER_SIZE;
     }
 
