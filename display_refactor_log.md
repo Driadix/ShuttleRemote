@@ -167,3 +167,66 @@ This phase abstracts common UI elements into reusable, composable widgets, elimi
 
 ## Next Steps
 - **Phase 5:** Port the main `DashboardScreen` and `MenuScreen` using these widgets.
+
+# Phase 5: Screen Migration (The Heavy Lifting)
+
+## Overview
+This phase successfully ported the legacy procedural UI (the "Big Switch Statement") into discrete, object-oriented `Screen` classes. This architecture leverages the `ScreenManager` for navigation and the Widget library for consistent UI elements, while adhering to the strict "No Dynamic Allocation" constraint.
+
+## Changes
+
+### 1. Static UI Graph
+- **Files:** `UI_Graph.h`, `UI_Graph.cpp`
+- **Description:**
+    - Declares global instances of all screen classes (e.g., `dashboardScreen`, `mainMenuScreen`).
+    - Ensures all screens are statically allocated at compile time, eliminating heap fragmentation risks.
+    - Provides a central registry for inter-screen navigation logic (e.g., `ScreenManager::push(&optionsScreen)`).
+
+### 2. Main Dashboard (Replaces Page::MAIN)
+- **Files:** `DashboardScreen.h`, `DashboardScreen.cpp`
+- **Features:**
+    - Displays live telemetry using `StatusBarWidget` and custom drawing for Shuttle Status.
+    - Replicates legacy animations (e.g., loading indicators).
+    - Handles manual movement inputs (Keys 8/0) directly via `DataManager` command gateway.
+    - Implements the "Queue Full" warning logic with auto-clearing via `tick()`.
+
+### 3. Secure Menus (Replaces Page::MENU_PROTECTION)
+- **Files:** `PinEntryScreen.h`, `PinEntryScreen.cpp`
+- **Pattern:** Implements the "Target Pointer" pattern.
+    - `setTarget(Screen* target)` allows dynamic reuse for any secured screen (e.g., Engineering Menu).
+    - Uses `NumericSpinnerWidget` for PIN entry (Default: 1441).
+    - On success, it pushes the target screen; on failure, it shows "Access Denied".
+
+### 4. Menu & Sub-Screens
+- **Files:**
+    - `MainMenuScreen`: Primary navigation hub using `ScrollingListWidget`. Features dynamic text (e.g., "Mode: FIFO").
+    - `OptionsScreen`: Configuration menu for MPR, Speed, etc.
+    - `ErrorsScreen`: Dynamic list of active errors (decoded from bitmask) or "No Errors".
+    - `StatsScreen`: Read-only view of odometer and cycle counts.
+    - `DebugInfoScreen`: Real-time view of sensors and hardware flags (2-page view).
+    - `EngineeringMenuScreen`: specialized menu for calibration and low-level settings.
+
+### 5. Functional Screens
+- **Files:**
+    - `UnloadPalletsScreen`: Uses spinner to input quantity for `CMD_LONG_UNLOAD_QTY`.
+    - `MovementScreen` / `MovementAxisScreen`: Hierarchical menu for precise manual movement distances.
+    - `ChangeChannelScreen`: specialized screen to update LoRa frequency and re-initialize the radio.
+    - `ChangeShuttleNumScreen`: Update Shuttle ID and persist to Preferences.
+
+### 6. Main Application Refactor (Completion)
+- **File:** `PultV1_0_2.ino`
+- **Description:**
+    - Removed `enum Page` and the 1000+ line `switch(page)` block.
+    - `loop()` now consists of concise manager ticks:
+        - `DataManager::getInstance().tick()`
+        - `PowerController::tick()`
+        - `InputManager::update()` -> `ScreenManager::handleInput()`
+        - `ScreenManager::tick(u8g2)`
+    - Added helper `setRadioChannel()` to expose low-level radio re-init logic to the UI layer safely.
+
+## Key Learnings & Decisions
+- **Dynamic Text in Static Lists:** `ScrollingListWidget` expects `const char*` arrays. To support dynamic text (e.g., "Battery: 80%"), screens own static `char` buffers (`_menuItemBuffers`) and update them via `snprintf` before drawing.
+- **Queue Management:** UI logic for command feedback (e.g., "Queue Full") was moved to `tick()` to ensure flags are cleared even if no user input occurs.
+- **Inter-Screen dependencies:** Screens refer to each other via `UI_Graph.h` externs, preventing circular dependency issues during compilation while allowing arbitrary navigation flows.
+
+This completes the modernization of the remote control's firmware architecture.
