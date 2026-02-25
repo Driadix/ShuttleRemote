@@ -91,6 +91,20 @@ void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
     }
 }
 
+bool CommLink::hasPendingHeartbeat() const {
+    // Check active job and queue
+    uint8_t idx = _jobHead;
+    while (idx != _jobTail) {
+        // Check if job is cancelled, if so skip?
+        // Assuming we check everything.
+        const TxJob* job = &_jobQueue[idx];
+        uint16_t msgIDIndex = (job->bufferOffset + 6) % TX_BUFFER_SIZE;
+        if (_txRingBuffer[msgIDIndex] == SP::MSG_REQ_HEARTBEAT) return true;
+        idx = (idx + 1) % MAX_JOBS;
+    }
+    return false;
+}
+
 // --- TX Logic ---
 
 uint16_t CommLink::getFreeSpace() const {
@@ -129,7 +143,7 @@ void CommLink::sendBufferData(uint16_t offset, uint8_t len) {
     }
 }
 
-bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen) {
+bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries) {
     // 1. Check Job Queue Space
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
     if (nextTail == _jobHead) {
@@ -187,6 +201,7 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
     job->length = totalLen;
     job->seqNum = header.seq;
     job->retryCount = 0;
+    job->maxRetries = maxRetries;
     job->cancelled = false;
 
     _jobTail = nextTail;
@@ -227,15 +242,19 @@ void CommLink::processTxQueue() {
         if (_jobHead != _jobTail) {
             TxJob* job = &_jobQueue[_jobHead];
             if (millis() - job->lastTxTime > 500) {
-                LOG_W("COMM", "ACK timeout for Seq: %d. Retrying (%d/3)...", job->seqNum, job->retryCount);
-                if (job->retryCount < 3) {
+                if (job->retryCount < job->maxRetries) {
+                    LOG_W("COMM", "ACK timeout Seq %d. Retry %d/%d", job->seqNum, job->retryCount + 1, job->maxRetries);
                     if (_transport->availableForWrite() >= job->length) {
                         job->retryCount++;
                         sendBufferData(job->bufferOffset, job->length);
                         job->lastTxTime = millis();
                     }
                 } else {
-                    LOG_I("COMM", "Max retries reached for Seq: %d. Command failed.", job->seqNum);
+                    if (job->maxRetries > 0) {
+                        LOG_I("COMM", "Max retries reached for Seq %d.", job->seqNum);
+                    } else {
+                        LOG_D("COMM", "Periodic packet Seq %d timeout. Dropped.", job->seqNum);
+                    }
 
                     uint16_t msgIDIndex = (job->bufferOffset + 6) % TX_BUFFER_SIZE;
                     uint8_t msgID = _txRingBuffer[msgIDIndex];
@@ -265,8 +284,8 @@ bool CommLink::sendCommand(SP::CommandPacket packet) {
     return enqueuePacket(SP::MSG_COMMAND, &packet, sizeof(packet));
 }
 
-bool CommLink::sendRequest(uint8_t msgID) {
-    return enqueuePacket(msgID, nullptr, 0);
+bool CommLink::sendRequest(uint8_t msgID, uint8_t maxRetries) {
+    return enqueuePacket(msgID, nullptr, 0, maxRetries);
 }
 
 bool CommLink::sendConfigSet(uint8_t paramID, int32_t value) {
