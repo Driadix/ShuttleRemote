@@ -13,6 +13,7 @@ ChangeChannelScreen::ChangeChannelScreen()
 }
 
 void ChangeChannelScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     // Current channel?
     // DataManager doesn't expose channel. It's radio config.
     // Let's default to 0 or try to read?

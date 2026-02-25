@@ -14,12 +14,9 @@ DataManager::DataManager()
       _commLink(&_transport, &_model),
       _isOtaUpdating(false),
       _isManualMoving(false),
-      _pollContext(PollContext::NORMAL),
-      _lastPollTime(0),
-      _lastSensorPollTime(0),
-      _lastStatsPollTime(0),
+      _pollingMode(PollingMode::ACTIVE_TELEMETRY),
+      _lastHeartbeatTimer(0),
       _manualHeartbeatTimer(0),
-      _currentPollInterval(1500),
       _remoteBatteryLevel(0),
       _isCharging(false),
       _radioChannel(0),
@@ -30,81 +27,60 @@ DataManager::DataManager()
 void DataManager::init(HardwareSerial* serial, uint8_t shuttleNum) {
     _transport.setSerial(serial);
     _model.setShuttleNumber(shuttleNum);
+    EventBus::subscribe(this);
+}
+
+void DataManager::onEvent(SystemEvent event) {
+    if (event == SystemEvent::COMM_RX_ACTIVITY) {
+        if (!_model.isConnected()) {
+             _model.setConnected(true);
+             LOG_I("DATA", "Connection RESTORED (Activity Detected)");
+             EventBus::publish(SystemEvent::CONNECTION_RESTORED);
+        }
+    }
 }
 
 void DataManager::tick() {
     if (_isOtaUpdating) return;
 
     _commLink.tick();
-    updatePolling();
 
-    // Connection Watchdog
     uint32_t now = millis();
-    bool currentlyConnected = _model.isConnected();
-    if (currentlyConnected) {
-        if (now - _model.getLastRxTime() > 2000) {
-            _model.setConnected(false);
-            LOG_I("DATA", "Connection LOST! Telemetry timeout.");
-            EventBus::publish(SystemEvent::CONNECTION_LOST);
-        }
-    } else {
-        if (_model.getLastRxTime() > 0 && (now - _model.getLastRxTime() < 2000)) {
-            _model.setConnected(true);
-            LOG_I("DATA", "Connection ESTABLISHED with Shuttle %d", _model.getShuttleNumber());
-            EventBus::publish(SystemEvent::CONNECTION_RESTORED);
-        }
+
+    // 1. Calculate Dynamic Timeout
+    uint32_t timeoutLimit = 2000; // Default active timeout
+    if (_pollingMode == PollingMode::IDLE_KEEPALIVE) timeoutLimit = 6000;
+
+    // 2. Watchdog Check
+    if (_model.isConnected() && (now - _model.getLastRxTime() > timeoutLimit)) {
+        _model.setConnected(false);
+        LOG_I("DATA", "Connection LOST! Timeout: %u ms", timeoutLimit);
+        EventBus::publish(SystemEvent::CONNECTION_LOST);
     }
-}
 
-void DataManager::updatePolling() {
-
-    uint32_t now = millis();
-
-    // 1. Dynamic Polling Rate
-    uint32_t pollingInterval = _model.isConnected() ? 400 : 1500; // 400ms active, 1.5s discovery
+    // 3. Heartbeat Dispatcher
+    if (_pollingMode == PollingMode::CUSTOM_DATA) {
+        // Do nothing. Screens handle polling.
+        return;
+    }
 
     if (_isManualMoving) {
-        // Manual Move Heartbeat Logic (Every 200ms)
+        // Manual Move Heartbeat Logic (Every 200ms) - Aggressive
         if (now - _manualHeartbeatTimer >= 200) {
-            _manualHeartbeatTimer = now; // Always advance timer
-
+            _manualHeartbeatTimer = now;
             if (!_commLink.hasPendingHeartbeat()) {
-                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0); // 0 retries
+                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0);
             }
         }
     } else {
-        // Standard Polling Logic
+        uint32_t pollInterval = (_pollingMode == PollingMode::IDLE_KEEPALIVE) ? 2000 : 500;
+        if (!_model.isConnected()) pollInterval = 1500; // Discovery mode
 
-        // 1. Heartbeat
-        if (now - _lastPollTime >= pollingInterval) {
-            // 2. ALWAYS reset the timer, whether we succeed in queueing or not
-            _lastPollTime = now;
-
-            // 3. Only queue if we aren't already actively waiting for a heartbeat ACK
+        if (now - _lastHeartbeatTimer >= pollInterval) {
+            _lastHeartbeatTimer = now;
             if (!_commLink.hasPendingHeartbeat()) {
-                // Send the heartbeat with ZERO retries
                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0);
-                LOG_D("DATA", "Heartbeat queued. Next in %d ms", pollingInterval);
-            } else {
-                LOG_W("DATA", "Skipped heartbeat queue: Previous heartbeat still in flight.");
-            }
-        }
-
-        // 2. Sensors (if in Debug Context)
-        if (_pollContext == PollContext::DEBUG_SENSORS) {
-            if (now - _lastSensorPollTime >= 300) {
-                if (_commLink.sendRequest(SP::MSG_REQ_SENSORS)) {
-                    _lastSensorPollTime = now;
-                }
-            }
-        }
-
-        // 3. Stats (if in Stats Context)
-        if (_pollContext == PollContext::STATS_VIEW) {
-            if (now - _lastStatsPollTime >= 2000) {
-                if (_commLink.sendRequest(SP::MSG_REQ_STATS)) {
-                    _lastStatsPollTime = now;
-                }
+                LOG_D("DATA", "Heartbeat queued. Interval: %d ms", pollInterval);
             }
         }
     }
@@ -201,8 +177,8 @@ uint8_t DataManager::getShuttleNumber() const { return _model.getShuttleNumber()
 
 // --- Setters ---
 
-void DataManager::setPollContext(PollContext ctx) {
-    _pollContext = ctx;
+void DataManager::setPollingMode(PollingMode mode) {
+    _pollingMode = mode;
 }
 
 void DataManager::setShuttleNumber(uint8_t id) {

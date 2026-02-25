@@ -7,6 +7,7 @@ ChangeShuttleNumScreen::ChangeShuttleNumScreen()
 }
 
 void ChangeShuttleNumScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     _spinner = NumericSpinnerWidget(2, DataManager::getInstance().getShuttleNumber());
 }
 

@@ -14,6 +14,7 @@ DashboardScreen::DashboardScreen()
 
 void DashboardScreen::onEnter() {
     Screen::onEnter();
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::ACTIVE_TELEMETRY);
     _isSelectingShuttle = false;
     EventBus::subscribe(this);
 }
@@ -275,7 +276,7 @@ void DashboardScreen::tick() {
         setDirty();
         _statusBar.clearDirty();
     }
-    DataManager::getInstance().setPollContext(DataManager::PollContext::MAIN_DASHBOARD);
+    // DataManager::getInstance().setPollingMode(DataManager::PollingMode::ACTIVE_TELEMETRY); // Already set onEnter
 
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {
         _showQueueFull = false;

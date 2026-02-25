@@ -4,14 +4,14 @@
 #include "TelemetryModel.h"
 #include "UartTransport.h"
 #include "ShuttleProtocolTypes.h"
+#include "EventBus.h"
 
-class DataManager {
+class DataManager : public EventListener {
 public:
-    enum class PollContext {
-        NORMAL,
-        MAIN_DASHBOARD, // Fast updates (400ms)
-        DEBUG_SENSORS,  // Sensors polling
-        STATS_VIEW      // Stats polling
+    enum class PollingMode {
+        ACTIVE_TELEMETRY, // 500ms
+        CUSTOM_DATA,      // OFF (Screens poll manually)
+        IDLE_KEEPALIVE    // 2000ms
     };
 
     static DataManager& getInstance();
@@ -21,6 +21,9 @@ public:
 
     // Main Loop Tick
     void tick();
+
+    // Event Listener Override
+    virtual void onEvent(SystemEvent event) override;
 
     // --- Command Gateway ---
     bool sendCommand(SP::CmdType cmd, int32_t arg1 = 0, int32_t arg2 = 0);
@@ -41,7 +44,7 @@ public:
     bool isCharging() const;
 
     // --- State Setters ---
-    void setPollContext(PollContext ctx);
+    void setPollingMode(PollingMode mode);
     void setShuttleNumber(uint8_t id);
     void saveLocalShuttleNumber(uint8_t id);
     void setOtaUpdating(bool isUpdating);
@@ -68,14 +71,11 @@ private:
     // --- State / Context ---
     bool _isOtaUpdating;
     bool _isManualMoving;
-    PollContext _pollContext;
+    PollingMode _pollingMode;
 
     // Timers
-    uint32_t _lastPollTime;
-    uint32_t _lastSensorPollTime;
-    uint32_t _lastStatsPollTime;
+    uint32_t _lastHeartbeatTimer;
     uint32_t _manualHeartbeatTimer;
-    uint32_t _currentPollInterval;
 
     int _remoteBatteryLevel;
     bool _isCharging;

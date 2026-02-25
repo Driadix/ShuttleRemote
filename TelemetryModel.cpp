@@ -54,6 +54,10 @@ void TelemetryModel::setShuttleNumber(uint8_t id) {
     }
 }
 
+void TelemetryModel::updateLastRxTime() {
+    _lastRxTime = millis();
+}
+
 int32_t TelemetryModel::getConfig(uint8_t index) const {
     if (index < 16) return _config[index];
     return 0;

@@ -18,7 +18,11 @@ void ErrorsScreen::provideErrorItem(uint8_t index, char* buffer) {
     else { snprintf(buffer, 64, "E%02d: %s", code, ERROR_STRINGS[code]); }
 }
 
-void ErrorsScreen::onEnter() { updateErrorList(); EventBus::subscribe(this); }
+void ErrorsScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
+    updateErrorList();
+    EventBus::subscribe(this);
+}
 void ErrorsScreen::onExit() { EventBus::unsubscribe(this); }
 
 void ErrorsScreen::onEvent(SystemEvent event) {

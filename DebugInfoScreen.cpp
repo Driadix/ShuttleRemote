@@ -6,7 +6,7 @@ DebugInfoScreen::DebugInfoScreen() : _pageIndex(0), _lastAnimTick(0), _animState
 
 void DebugInfoScreen::onEnter() {
     _pageIndex = 0;
-    DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::CUSTOM_DATA);
     EventBus::subscribe(this);
 }
 
@@ -83,7 +83,12 @@ void DebugInfoScreen::handleInput(InputEvent event) {
 }
 
 void DebugInfoScreen::tick() {
-    DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
+    static uint32_t lastPoll = 0;
+    if (millis() - lastPoll > 1000) {
+        lastPoll = millis();
+        DataManager::getInstance().sendRequest(SP::MSG_REQ_SENSORS, 0);
+    }
+
     if (millis() - _lastAnimTick > 250) {
         _lastAnimTick = millis();
         _animState = (_animState + 1) % 4;

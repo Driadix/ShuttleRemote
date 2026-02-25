@@ -5,7 +5,7 @@
 StatsScreen::StatsScreen() {}
 
 void StatsScreen::onEnter() {
-    DataManager::getInstance().setPollContext(DataManager::PollContext::STATS_VIEW);
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::CUSTOM_DATA);
     EventBus::subscribe(this);
 }
 
@@ -49,6 +49,9 @@ void StatsScreen::handleInput(InputEvent event) {
 }
 
 void StatsScreen::tick() {
-    // Keep context active
-    DataManager::getInstance().setPollContext(DataManager::PollContext::STATS_VIEW);
+    static uint32_t lastPoll = 0;
+    if (millis() - lastPoll > 1000) {
+        lastPoll = millis();
+        DataManager::getInstance().sendRequest(SP::MSG_REQ_STATS, 0);
+    }
 }
