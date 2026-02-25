@@ -2,9 +2,11 @@
 #include <stdlib.h> // for abs
 
 NumericSpinnerWidget::NumericSpinnerWidget(uint8_t numDigits, int32_t initialValue)
-    : _numDigits(numDigits), _curDigitIdx(0) {
+    : Widget(numDigits * 12, 16), _numDigits(numDigits), _curDigitIdx(0) {
 
     if (_numDigits > 6) _numDigits = 6;
+    // Recalculate width just in case numDigits was clamped
+    setSize(_numDigits * 12, 16);
 
     int32_t temp = abs(initialValue);
     // Fill digits from right to left
@@ -25,6 +27,12 @@ uint32_t NumericSpinnerWidget::getValue() const {
 bool NumericSpinnerWidget::handleInput(InputEvent event) {
     bool changed = false;
 
+    // Use current digit index from state
+
+    // Logic: Up/Down changes current digit. OK moves to next digit.
+    // What if OK is pressed on last digit? Loop back or return true (finished)?
+    // The current logic loops back.
+
     if (event == InputEvent::UP_PRESS) {
         _digits[_curDigitIdx]++;
         if (_digits[_curDigitIdx] > 9) _digits[_curDigitIdx] = 0;
@@ -39,10 +47,16 @@ bool NumericSpinnerWidget::handleInput(InputEvent event) {
         changed = true;
     }
 
+    if (changed) setDirty();
     return changed;
 }
 
 void NumericSpinnerWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
+    // Clear background
+    display.setDrawColor(0);
+    display.drawBox(x, y, _width, _height);
+    display.setDrawColor(1);
+
     display.setFont(u8g2_font_9x15_t_cyrillic); // Larger font for numbers
     // 9x15 font. Baseline approx 12px from top.
 

@@ -4,6 +4,11 @@
 void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     const auto& telemetry = DataManager::getInstance().getTelemetry();
 
+    // Clear background for partial redraw
+    display.setDrawColor(0);
+    display.drawBox(x, y, 128, 14); // Use fixed size or _width/_height
+    display.setDrawColor(1);
+
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
@@ -40,14 +45,6 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     // Ported Logic from BatteryLevel(uint8_t percent)
     // We use telemetry.batteryCharge
     uint8_t percent = telemetry.batteryCharge;
-
-    // Smoothness logic from legacy (prevpercent) omitted as Widget is redrawn fresh.
-    // But we need persistent state for smoothness?
-    // The legacy code used static/global prevpercent.
-    // "if (percent < prevpercent || percent > prevpercent + 5) prevpercent = percent;"
-    // This is hysteresis.
-    // For a widget, we might want to store this state if strict adherence is needed.
-    // But for now, direct mapping is fine.
 
     uint8_t width = 0;
     if (percent > 95) width = 14;

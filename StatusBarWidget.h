@@ -6,7 +6,7 @@
 // Pure observer widget (no input handling).
 class StatusBarWidget : public Widget {
 public:
-    StatusBarWidget() {}
+    StatusBarWidget() : Widget(128, 14) {} // Set size
 
     virtual void draw(U8G2& display, uint8_t x, uint8_t y) override;
 

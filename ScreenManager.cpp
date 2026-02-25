@@ -65,7 +65,7 @@ void ScreenManager::tick(U8G2& display) {
 
         // 2. Dirty Flag Render Cascade
         if (currentScreen->needsRedraw()) {
-            display.clearBuffer();
+            // Note: Screens are responsible for clearBuffer() if needed (e.g. on full redraw)
             currentScreen->draw(display);
             display.sendBuffer();
             currentScreen->clearDirty();

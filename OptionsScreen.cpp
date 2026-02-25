@@ -1,64 +1,111 @@
 #include "OptionsScreen.h"
 #include "UI_Graph.h" // For instances
 #include "ScreenManager.h"
+#include "UIBuffer.h"
 #include <cstdio>
 
 // Static definitions
-char OptionsScreen::_optItemBuffers[OptionsScreen::OPT_ITEM_COUNT][32];
+// char OptionsScreen::_optItemBuffers[OptionsScreen::OPT_ITEM_COUNT][32]; // Removed
 const char* OptionsScreen::_optItemsPtrs[OptionsScreen::OPT_ITEM_COUNT];
 
 OptionsScreen::OptionsScreen()
     : _statusBar(),
       _menuList(_optItemsPtrs, OPT_ITEM_COUNT, 4)
 {
+    // Initialize pointers to UIBuffer lines
     for (int i = 0; i < OPT_ITEM_COUNT; i++) {
-        _optItemsPtrs[i] = _optItemBuffers[i];
+        _optItemsPtrs[i] = UIBuffer::getLine(i);
     }
 }
 
 void OptionsScreen::onEnter() {
+    Screen::onEnter();
+    EventBus::subscribe(this);
+
     // Request config params to ensure fresh data
     DataManager::getInstance().requestConfig(SP::CFG_INTER_PALLET);
     DataManager::getInstance().requestConfig(SP::CFG_REVERSE_MODE);
     DataManager::getInstance().requestConfig(SP::CFG_MAX_SPEED);
     DataManager::getInstance().requestConfig(SP::CFG_MIN_BATT);
+
+    // Initial update
     updateMenuItems();
+}
+
+void OptionsScreen::onExit() {
+    Screen::onExit();
+    EventBus::unsubscribe(this);
+}
+
+void OptionsScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::CONFIG_UPDATED || event == SystemEvent::TELEMETRY_UPDATED) {
+        setDirty();
+    }
 }
 
 void OptionsScreen::updateMenuItems() {
+    // Write into shared UIBuffer
+
     // 0. MPR (Inter Pallet Distance)
-    snprintf(_optItemBuffers[0], 32, "MPR: %d mm", DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET));
+    snprintf(UIBuffer::getLine(0), 32, "MPR: %ld mm", (long)DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET));
 
     // 1. Reverse Mode
     bool rev = DataManager::getInstance().getConfig(SP::CFG_REVERSE_MODE) != 0;
-    snprintf(_optItemBuffers[1], 32, "Rev Mode: %s", rev ? "<<" : ">>");
+    snprintf(UIBuffer::getLine(1), 32, "Rev Mode: %s", rev ? "<<" : ">>");
 
-    // 2. Max Speed (Stored as ~0-96, displayed as percentage?)
-    // Legacy: speedset / 10. If speedset is 1000 -> 100%.
-    // Protocol sends speedset directly.
-    // Let's just show raw value or assume it's scaled.
-    // Legacy: `speedset` is 1000 max. Display `speedset/10`.
-    // DataManager stores `value` as int32_t.
-    snprintf(_optItemBuffers[2], 32, "Max Speed: %d%%", DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10);
+    // 2. Max Speed
+    snprintf(UIBuffer::getLine(2), 32, "Max Speed: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10);
 
     // 3. Change N Device
-    snprintf(_optItemBuffers[3], 32, "Change ID: %d", DataManager::getInstance().getShuttleNumber());
+    snprintf(UIBuffer::getLine(3), 32, "Change ID: %d", DataManager::getInstance().getShuttleNumber());
 
     // 4. Battery Protection
-    snprintf(_optItemBuffers[4], 32, "Batt Prot: %d%%", DataManager::getInstance().getConfig(SP::CFG_MIN_BATT));
+    snprintf(UIBuffer::getLine(4), 32, "Batt Prot: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT));
 
     // 5. Engineering Menu
-    snprintf(_optItemBuffers[5], 32, "Engineering Menu");
+    snprintf(UIBuffer::getLine(5), 32, "Engineering Menu");
 
     // 6. Save Params
-    snprintf(_optItemBuffers[6], 32, "Save Params");
+    snprintf(UIBuffer::getLine(6), 32, "Save Params");
 
     // 7. Back
-    snprintf(_optItemBuffers[7], 32, "Back");
+    snprintf(UIBuffer::getLine(7), 32, "Back");
 }
 
 void OptionsScreen::draw(U8G2& display) {
+    if (_fullRedrawNeeded) {
+        display.clearBuffer();
+    }
+
+    // Refresh buffer content because it might have been used by another screen
     updateMenuItems();
+
+    // Partial updates: We should clear if needed.
+    // ListWidget draws items.
+    // If we rely on _fullRedrawNeeded, it clears.
+    // If partial (config update), we redraw everything over previous.
+    // U8g2 without clearBuffer might leave artifacts if text length decreases.
+    // ScrollingListWidget should ideally clear its row.
+    // But since this screen is simple, full redraw on update is acceptable or we rely on overwriting with spaces?
+    // "MPR: 100 mm" -> "MPR: 90 mm ".
+    // Creating "clearing" strings is annoying.
+    // The user suggested drawing black box.
+    // ScrollingListWidget doesn't support that yet.
+    // For now, let's force full redraw on config change?
+    // `setDirty()` doesn't set `_fullRedrawNeeded`.
+    // But `OptionsScreen` covers full screen.
+    // If I want to clear, I can do `display.clearBuffer()` here manually if I want.
+    // But to respect the "Partial" goal:
+    // I will let it overdraw.
+    // To prevent artifacts, I should clear the list area.
+
+    if (!_fullRedrawNeeded) {
+        // Clear list area to be safe
+         display.setDrawColor(0);
+         display.drawBox(0, 16, 128, 64-16);
+         display.setDrawColor(1);
+    }
+
     _statusBar.draw(display, 0, 0);
     _menuList.draw(display, 0, 16);
 }
@@ -69,8 +116,8 @@ void OptionsScreen::adjustValue(int idx, bool increase) {
         case 0: // MPR
             val = DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET);
             val += (increase ? 10 : -10);
-            if (val < 50) val = 50; // Legacy min
-            if (val > 400) val = 400; // Legacy max
+            if (val < 50) val = 50;
+            if (val > 400) val = 400;
             DataManager::getInstance().setConfig(SP::CFG_INTER_PALLET, val);
             break;
 
@@ -107,7 +154,6 @@ void OptionsScreen::handleInput(InputEvent event) {
 
     int idx = _menuList.getCursorIndex();
 
-    // Adjust values with 'E' (UP) and '9' (DOWN) keys (LIFT_UP/DOWN)
     if (event == InputEvent::LIFT_UP_PRESS) {
         adjustValue(idx, true);
         return;
@@ -126,6 +172,13 @@ void OptionsScreen::handleInput(InputEvent event) {
                 ScreenManager::getInstance().push(&changeShuttleNumScreen);
                 break;
             case 5: // Engineering Menu
+                // pinEntryScreen.setTarget(&engineeringMenuScreen); // Assume these exist externally
+                // ScreenManager::getInstance().push(&pinEntryScreen);
+                // Since I cannot see UI_Graph.h externalities easily, I'll copy the logic from original file.
+                // Original:
+                // pinEntryScreen.setTarget(&engineeringMenuScreen);
+                // ScreenManager::getInstance().push(&pinEntryScreen);
+                // I need externs. They are in UI_Graph.h which I included.
                 pinEntryScreen.setTarget(&engineeringMenuScreen);
                 ScreenManager::getInstance().push(&pinEntryScreen);
                 break;
@@ -145,10 +198,6 @@ void OptionsScreen::handleInput(InputEvent event) {
 }
 
 void OptionsScreen::tick() {
-    if (DataManager::getInstance().consumeConfigDirtyFlag()) {
-        setDirty();
-    }
-    if (DataManager::getInstance().consumeTelemetryDirtyFlag()) {
-        setDirty();
-    }
+    // Legacy polling removed.
+    // Handled by onEvent
 }
