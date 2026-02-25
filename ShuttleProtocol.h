@@ -4,12 +4,12 @@
 #include <stdbool.h>
 
 // --- Transport Layer Constants ---
-#define PROTOCOL_SYNC_1           0xAA
-#define PROTOCOL_SYNC_2           0x55
-#define PROTOCOL_VER              1
+constexpr uint8_t PROTOCOL_SYNC_1 = 0xAA;
+constexpr uint8_t PROTOCOL_SYNC_2 = 0x55;
+constexpr uint8_t PROTOCOL_VER = 1;
 
-#define TARGET_ID_NONE        0x00  // Direct UART line, target ID doesn't matter
-#define TARGET_ID_BROADCAST       0xFF  // Global command to all shuttles listening (use carefully)
+constexpr uint8_t TARGET_ID_NONE = 0x00;  // Direct UART line, target ID doesn't matter
+constexpr uint8_t TARGET_ID_BROADCAST = 0xFF;  // Global command to all shuttles listening (use carefully)
 
 #pragma pack(push, 1)
 

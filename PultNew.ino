@@ -1,4 +1,4 @@
-#include <AsyncElegantOTA.h>
+#include <ElegantOTA.h>
 #include <AsyncTCP.h>
 #include <Preferences.h>
 #include <ESPAsyncWebServer.h>
@@ -145,11 +145,11 @@ void setup()
   // Initialize Screen Manager
   ScreenManager::getInstance().push(&dashboardScreen);
 
-  AsyncElegantOTA.onStarted([]() {
+  ElegantOTA.onStart([]() {
       isOtaUpdating = true;
       DataManager::getInstance().setOtaUpdating(true);
   });
-  AsyncElegantOTA.onEnd([]() {
+  ElegantOTA.onEnd([](bool success) {
       isOtaUpdating = false;
       DataManager::getInstance().setOtaUpdating(false);
   });
@@ -174,7 +174,7 @@ void loop()
 
   if (isUpdateStarted)
   {
-    AsyncElegantOTA.loop();
+    ElegantOTA.loop();
   }
   
   // --- DataManager Tick ---

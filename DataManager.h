@@ -33,6 +33,7 @@ public:
     const SP::SensorPacket& getSensors() const;
     const SP::StatsPacket& getStats() const;
     int32_t getConfig(uint8_t index) const;
+    uint8_t getShuttleNumber() const;
 
     // --- Dirty Flags (Atomic Check-and-Clear) ---
     bool consumeTelemetryDirtyFlag();

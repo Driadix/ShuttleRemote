@@ -362,6 +362,10 @@ bool DataManager::consumeConfigDirtyFlag() {
     return dirty;
 }
 
+uint8_t DataManager::getShuttleNumber() const {
+    return _shuttleNumber;
+}
+
 // --- Setters ---
 
 void DataManager::setPollContext(PollContext ctx) {
