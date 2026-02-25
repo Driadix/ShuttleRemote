@@ -12,7 +12,7 @@ public:
 
     // --- Sending Methods ---
     bool sendCommand(SP::CommandPacket packet);
-    bool sendRequest(uint8_t msgID);
+    bool sendRequest(uint8_t msgID, uint8_t maxRetries = 3);
     bool sendConfigSet(uint8_t paramID, int32_t value);
     bool sendConfigGet(uint8_t paramID);
 
@@ -21,6 +21,7 @@ public:
 
     bool isQueueFull() const;
     bool isWaitingForAck() const;
+    bool hasPendingHeartbeat() const;
 
     enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
 
@@ -41,6 +42,7 @@ private:
         uint8_t seqNum;
         uint32_t lastTxTime;
         uint8_t retryCount;
+        uint8_t maxRetries;
         bool cancelled;
     };
     static const uint8_t MAX_JOBS = 8;
@@ -53,7 +55,7 @@ private:
     uint8_t _nextSeqNum;
 
     // --- Internal Helpers ---
-    bool enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen);
+    bool enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries = 3);
     void processTxQueue();
     void handleRx();
     void processIncomingAck(uint8_t seq, SP::AckPacket* ack);

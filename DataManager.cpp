@@ -60,27 +60,33 @@ void DataManager::updatePolling() {
 
     uint32_t now = millis();
 
-    // Determine base poll interval
-    if (_pollContext == PollContext::MAIN_DASHBOARD) {
-        _currentPollInterval = 400;
-    } else {
-        _currentPollInterval = 1500;
-    }
+    // 1. Dynamic Polling Rate
+    uint32_t pollingInterval = _model.isConnected() ? 400 : 1500; // 400ms active, 1.5s discovery
 
     if (_isManualMoving) {
         // Manual Move Heartbeat Logic (Every 200ms)
         if (now - _manualHeartbeatTimer >= 200) {
-            if (_commLink.sendRequest(SP::MSG_REQ_HEARTBEAT)) {
-                 _manualHeartbeatTimer = now;
+            _manualHeartbeatTimer = now; // Always advance timer
+
+            if (!_commLink.hasPendingHeartbeat()) {
+                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0); // 0 retries
             }
         }
     } else {
         // Standard Polling Logic
 
         // 1. Heartbeat
-        if (now - _lastPollTime >= _currentPollInterval) {
-            if (_commLink.sendRequest(SP::MSG_REQ_HEARTBEAT)) {
-                _lastPollTime = now;
+        if (now - _lastPollTime >= pollingInterval) {
+            // 2. ALWAYS reset the timer, whether we succeed in queueing or not
+            _lastPollTime = now;
+
+            // 3. Only queue if we aren't already actively waiting for a heartbeat ACK
+            if (!_commLink.hasPendingHeartbeat()) {
+                // Send the heartbeat with ZERO retries
+                _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0);
+                LOG_D("DATA", "Heartbeat queued. Next in %d ms", pollingInterval);
+            } else {
+                LOG_W("DATA", "Skipped heartbeat queue: Previous heartbeat still in flight.");
             }
         }
 
