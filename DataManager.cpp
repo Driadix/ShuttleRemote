@@ -22,7 +22,8 @@ DataManager::DataManager()
       _currentPollInterval(1500),
       _remoteBatteryLevel(0),
       _isCharging(false),
-      _radioChannel(0)
+      _radioChannel(0),
+      _lastUserCommandType((SP::CmdType)0)
 {
 }
 
@@ -107,11 +108,25 @@ void DataManager::updatePolling() {
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     LOG_D("DATA", "Dispatching command: MSG_COMMAND (Type: %d) to CommLink", (int)cmd);
+
+    // Preemption: clear previous user commands to enforce "Latest Intent Wins"
+    _commLink.clearPendingCommands();
+    _lastUserCommandType = cmd;
+
     SP::CommandPacket packet;
     packet.cmdType = (uint8_t)cmd;
     packet.arg1 = arg1;
     packet.arg2 = arg2;
-    return _commLink.sendCommand(packet);
+
+    bool sent = _commLink.sendCommand(packet);
+    if (sent) {
+        EventBus::publish(SystemEvent::CMD_DISPATCHED);
+    }
+    return sent;
+}
+
+SP::CmdType DataManager::getLastUserCommandType() const {
+    return _lastUserCommandType;
 }
 
 bool DataManager::requestConfig(SP::ConfigParamID paramID) {

@@ -11,4 +11,5 @@ public:
     static const char* getSystemEventName(SystemEvent event);
     static const char* getMsgIdName(uint8_t msgId);
     static const char* getTxStateName(CommLink::TxState state);
+    static const char* getUICommandName(uint8_t cmdType);
 };

@@ -40,6 +40,9 @@ const char* DebugUtils::getSystemEventName(SystemEvent event) {
         case SystemEvent::CONNECTION_LOST:     return "CONNECTION_LOST";
         case SystemEvent::CONNECTION_RESTORED: return "CONNECTION_RESTORED";
         case SystemEvent::LOCAL_BATT_UPDATED:  return "LOCAL_BATT_UPDATED";
+        case SystemEvent::CMD_DISPATCHED:      return "CMD_DISPATCHED";
+        case SystemEvent::CMD_ACKED:           return "CMD_ACKED";
+        case SystemEvent::CMD_FAILED:          return "CMD_FAILED";
         default:                               return "UNKNOWN_SYS_EVENT";
     }
 }
@@ -68,5 +71,40 @@ const char* DebugUtils::getTxStateName(CommLink::TxState state) {
         case CommLink::TxState::WAITING_ACK:   return "WAITING_ACK";
         case CommLink::TxState::TIMEOUT_ERROR: return "TIMEOUT_ERROR";
         default:                               return "UNKNOWN_STATE";
+    }
+}
+
+const char* DebugUtils::getUICommandName(uint8_t cmdType) {
+    switch (cmdType) {
+        case SP::CMD_STOP:            return "Стоп";
+        case SP::CMD_STOP_MANUAL:     return "Стоп (Р)";
+        case SP::CMD_MOVE_RIGHT_MAN:  return "Вправо";
+        case SP::CMD_MOVE_LEFT_MAN:   return "Влево";
+        case SP::CMD_LIFT_UP:         return "Подъем";
+        case SP::CMD_LIFT_DOWN:       return "Спуск";
+        case SP::CMD_LOAD:            return "Загрузка";
+        case SP::CMD_UNLOAD:          return "Выгрузка";
+        case SP::CMD_MOVE_DIST_R:     return "Движение";
+        case SP::CMD_MOVE_DIST_F:     return "Движение";
+        case SP::CMD_CALIBRATE:       return "Калибр.";
+        case SP::CMD_DEMO:            return "Демо";
+        case SP::CMD_COUNT_PALLETS:   return "Счет пал.";
+        case SP::CMD_SAVE_EEPROM:     return "Сохр. настр.";
+        case SP::CMD_COMPACT_F:       return "Уплотнение";
+        case SP::CMD_COMPACT_R:       return "Уплотнение";
+        case SP::CMD_GET_CONFIG:      return "Чтение настр.";
+        case SP::CMD_EVACUATE_ON:     return "Эвакуация";
+        case SP::CMD_LONG_LOAD:       return "Длин. Загр.";
+        case SP::CMD_LONG_UNLOAD:     return "Длин. Выгр.";
+        case SP::CMD_LONG_UNLOAD_QTY: return "Длин. Выгр.";
+        case SP::CMD_RESET_ERROR:     return "Сброс ош.";
+        case SP::CMD_MANUAL_MODE:     return "Ручной реж.";
+        case SP::CMD_LOG_MODE:        return "Лог реж.";
+        case SP::CMD_HOME:            return "Домой";
+        case SP::CMD_PING:            return "Пинг";
+        case SP::CMD_FIRMWARE_UPDATE: return "Обновление";
+        case SP::CMD_SYSTEM_RESET:    return "Сброс сист.";
+        case SP::CMD_SET_DATETIME:    return "Уст. время";
+        default:                      return "Команда";
     }
 }
