@@ -5,7 +5,7 @@
 #include "DataManager.h"
 #include "EventBus.h"
 
-class MainMenuScreen : public Screen, public EventListener {
+class MainMenuScreen : public Screen {
 public:
     MainMenuScreen();
 

@@ -68,7 +68,7 @@ void DashboardScreen::draw(U8G2& display) {
 
     // 4. Manual Command
     if (_isManualMoving) {
-        display.drawStr(85, 40, _manualCommand);
+        display.drawStr(85, 40, _manualCommand.c_str());
     }
 
     // 5. Draw Animation
