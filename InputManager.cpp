@@ -1,5 +1,7 @@
 #include "InputManager.h"
 #include <Keypad.h>
+#include "Logger.h"
+#include "DebugUtils.h"
 
 InputEvent InputManager::_queuedEvent = InputEvent::NONE;
 
@@ -82,6 +84,9 @@ void InputManager::update() {
                             if (!longPressActive) {
                                 // It was a short press
                                 _queuedEvent = mapKeyToEvent(key, false);
+                                if (_queuedEvent != InputEvent::NONE) {
+                                    LOG_D("INPUT", "Key Event Queued: %s", DebugUtils::getEventName(_queuedEvent));
+                                }
                             }
                             // Reset state
                             activeKey = 0;
@@ -102,6 +107,7 @@ void InputManager::update() {
             InputEvent evt = mapKeyToEvent(activeKey, true);
             if (evt != InputEvent::NONE) {
                 _queuedEvent = evt;
+                LOG_D("INPUT", "Key Event Queued: %s", DebugUtils::getEventName(_queuedEvent));
             }
         }
     }

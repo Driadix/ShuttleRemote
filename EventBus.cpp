@@ -1,4 +1,6 @@
 #include "EventBus.h"
+#include "Logger.h"
+#include "DebugUtils.h"
 
 EventListener* EventBus::_listeners[EventBus::MAX_LISTENERS] = {nullptr};
 
@@ -31,6 +33,7 @@ void EventBus::unsubscribe(EventListener* listener) {
 }
 
 void EventBus::publish(SystemEvent event) {
+    LOG_D("BUS", "Event Published: %s", DebugUtils::getSystemEventName(event));
     for (int i = 0; i < MAX_LISTENERS; i++) {
         if (_listeners[i] != nullptr) {
             _listeners[i]->onEvent(event);

@@ -1,5 +1,7 @@
 #include "CommLink.h"
 #include <Arduino.h>
+#include "Logger.h"
+#include "DebugUtils.h"
 
 CommLink::CommLink(ITransport* transport, TelemetryModel* model)
     : _transport(transport), _model(model), _txWriteIndex(0),
@@ -21,7 +23,13 @@ void CommLink::handleRx() {
         uint8_t byte = _transport->read();
         SP::FrameHeader* header = _parser.feed(byte);
 
+        if (_parser.crcError) {
+            LOG_W("COMM", "RX dropped: CRC mismatch");
+        }
+
         if (header) {
+            LOG_D("COMM", "RX: [%s] Seq: %d", DebugUtils::getMsgIdName(header->msgID), header->seq);
+
             uint8_t* payload = (uint8_t*)header + sizeof(SP::FrameHeader);
 
             // Dispatch to TelemetryModel
@@ -62,6 +70,7 @@ void CommLink::handleRx() {
 void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
     if (_txState == TxState::WAITING_ACK && _jobHead != _jobTail) {
         if (_jobQueue[_jobHead].seqNum == seq) {
+            LOG_D("COMM", "ACK matched for Seq: %d. Job cleared.", seq);
             // Success! Advance job queue
             _jobHead = (_jobHead + 1) % MAX_JOBS;
             _txState = TxState::IDLE;
@@ -116,11 +125,17 @@ void CommLink::sendBufferData(uint16_t offset, uint8_t len) {
 bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen) {
     // 1. Check Job Queue Space
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
-    if (nextTail == _jobHead) return false; // Job queue full
+    if (nextTail == _jobHead) {
+        LOG_W("COMM", "TX Queue Full! Dropping packet ID: %s", DebugUtils::getMsgIdName(msgID));
+        return false; // Job queue full
+    }
 
     // 2. Check Buffer Space
     uint16_t totalLen = sizeof(SP::FrameHeader) + payloadLen + 2; // +CRC
-    if (getFreeSpace() < totalLen) return false; // Buffer full
+    if (getFreeSpace() < totalLen) {
+        LOG_W("COMM", "TX Buffer Full! Dropping packet ID: %s", DebugUtils::getMsgIdName(msgID));
+        return false; // Buffer full
+    }
 
     // 3. Assemble Packet in Buffer
     uint16_t startOffset = _txWriteIndex;
@@ -179,6 +194,12 @@ void CommLink::processTxQueue() {
             TxJob* job = &_jobQueue[_jobHead];
 
             if (_transport->availableForWrite() >= job->length) {
+                // Peek MsgID for logging (MsgID is at offset 6 in FrameHeader)
+                // We need to handle wrapping if the header wraps (unlikely for small header but possible)
+                uint16_t msgIDIndex = (job->bufferOffset + 6) % TX_BUFFER_SIZE;
+                uint8_t msgID = _txRingBuffer[msgIDIndex];
+                LOG_D("COMM", "TX: [%s] Seq: %d, Len: %d", DebugUtils::getMsgIdName(msgID), job->seqNum, job->length);
+
                 sendBufferData(job->bufferOffset, job->length);
                 job->lastTxTime = millis();
                 _txState = TxState::WAITING_ACK;
@@ -188,6 +209,7 @@ void CommLink::processTxQueue() {
         if (_jobHead != _jobTail) {
             TxJob* job = &_jobQueue[_jobHead];
             if (millis() - job->lastTxTime > 500) {
+                LOG_W("COMM", "ACK timeout for Seq: %d. Retrying (%d/3)...", job->seqNum, job->retryCount);
                 if (job->retryCount < 3) {
                     if (_transport->availableForWrite() >= job->length) {
                         job->retryCount++;
@@ -195,6 +217,7 @@ void CommLink::processTxQueue() {
                         job->lastTxTime = millis();
                     }
                 } else {
+                    LOG_I("COMM", "Max retries reached for Seq: %d. Command failed.", job->seqNum);
                     _txState = TxState::TIMEOUT_ERROR;
                 }
             }

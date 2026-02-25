@@ -1,6 +1,7 @@
 #include "PowerController.h"
 #include "DataManager.h"
 #include <driver/rtc_io.h>
+#include "Logger.h"
 
 unsigned long PowerController::_lastActivityTime = 0;
 unsigned long PowerController::_sleepThreshold = 25000; // 25s default
@@ -82,6 +83,12 @@ void PowerController::tick() {
             isCharging = true;
         }
 
+        static bool lastChargingState = false;
+        if (isCharging != lastChargingState) {
+             LOG_D("PWR", "Charging state changed: %s", isCharging ? "CHARGING" : "DISCHARGING");
+             lastChargingState = isCharging;
+        }
+
         int raw = analogRead(_batteryPin);
         int volt = map(raw, 740, 1100, 0, 100);
         if (volt < 0) volt = 0;
@@ -112,6 +119,7 @@ void PowerController::preventSleep(bool prevent) {
 }
 
 void PowerController::enterDeepSleep() {
+    LOG_I("PWR", "Initiating deep sleep. Holding power pins...");
     // Configure pins for sleep state
     rtc_gpio_init((gpio_num_t)13);
     rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_OUTPUT_ONLY);

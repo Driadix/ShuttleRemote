@@ -12,6 +12,8 @@
 #include "DataManager.h"
 #include "ScreenManager.h"
 #include "UI_Graph.h"
+#include "Logger.h"
+#include "DebugUtils.h"
 
 // --- Global UI State ---
 Preferences prefs;
@@ -37,7 +39,7 @@ const int rfout0 = 15;  // D3
 void initRadio() {
   digitalWrite(rfout0, HIGH);
   delay(1000);
-  Serial.println("Write LoRa settings...");
+  LOG_I("SYS", "Write LoRa settings...");
 
   uint8_t config[6] = { 0xC0, 0x0, 0x0, 0x1C, 0x00, 0x46 };
   config[4] = DataManager::getInstance().getRadioChannel();
@@ -51,6 +53,7 @@ void initRadio() {
   while (Serial2.available()) {
     Serial2.read();
   }
+  LOG_I("SYS", "Radio Init Complete");
 }
 
 void setup()
@@ -58,11 +61,14 @@ void setup()
   pinMode(rfout0, OUTPUT);
   // Charge Pin mode set in PowerController
 
-  Serial.begin(19200);
+  LOG_INIT(115200);
   Serial2.begin(9600);
 
   btStop();
-  Serial.print("Start");
+  LOG_I("SYS", "Remote Controller Booting... Version: %s", R_VERSION);
+
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  LOG_I("SYS", "Wakeup reason code: %d", wakeup_reason);
 
   SPI.begin(18, 35, 23, 2);
   delay(100);
@@ -132,8 +138,7 @@ void loop()
   InputManager::update();
   InputEvent evt = InputManager::getNextEvent();
   if (evt != InputEvent::NONE) {
-      Serial.print("Event: ");
-      Serial.println((int)evt);
+      LOG_D("INPUT", "Event: %s", DebugUtils::getEventName(evt));
       PowerController::feedWatchdog();
       ScreenManager::getInstance().handleInput(evt);
   }
