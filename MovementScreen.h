@@ -5,7 +5,7 @@
 #include "DataManager.h"
 #include "EventBus.h"
 
-class MovementScreen : public Screen, public EventListener {
+class MovementScreen : public Screen {
 public:
     MovementScreen();
 
@@ -24,7 +24,7 @@ private:
     static void provideMenuItem(uint8_t index, char* buffer);
 };
 
-class MovementAxisScreen : public Screen, public EventListener {
+class MovementAxisScreen : public Screen {
 public:
     MovementAxisScreen();
 

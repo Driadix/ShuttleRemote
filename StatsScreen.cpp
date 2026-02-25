@@ -28,16 +28,16 @@ void StatsScreen::draw(U8G2& display) {
 
     char buf[32];
 
-    snprintf(buf, sizeof(buf), "Dist:   %-6lu m", stats.totalDist / 1000);
+    snprintf(buf, sizeof(buf), "Dist:   %-6lu m", (unsigned long)(stats.totalDist / 1000));
     display.drawStr(0, 25, buf);
 
-    snprintf(buf, sizeof(buf), "Cycles: %-6lu", stats.loadCounter);
+    snprintf(buf, sizeof(buf), "Cycles: %-6lu", (unsigned long)stats.loadCounter);
     display.drawStr(0, 37, buf);
 
     snprintf(buf, sizeof(buf), "Crashes: %-5u", stats.crashCount);
     display.drawStr(0, 49, buf);
 
-    snprintf(buf, sizeof(buf), "Uptime:  %-6lu m", stats.totalUptimeMinutes);
+    snprintf(buf, sizeof(buf), "Uptime:  %-6lu m", (unsigned long)stats.totalUptimeMinutes);
     display.drawStr(0, 61, buf);
 }
 

@@ -5,7 +5,7 @@
 #include "DataManager.h"
 #include "EventBus.h"
 
-class ErrorsScreen : public Screen, public EventListener {
+class ErrorsScreen : public Screen {
 public:
     ErrorsScreen();
 

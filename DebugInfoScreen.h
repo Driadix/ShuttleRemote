@@ -4,7 +4,7 @@
 #include "DataManager.h"
 #include "EventBus.h"
 
-class DebugInfoScreen : public Screen, public EventListener {
+class DebugInfoScreen : public Screen {
 public:
     DebugInfoScreen();
 
