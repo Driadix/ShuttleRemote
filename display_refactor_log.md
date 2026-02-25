@@ -76,3 +76,44 @@ This phase centralizes all state management, protocol parsing, and UART communic
 - **Headless Mode:** The system prints telemetry updates to Serial when dirty flags are consumed.
 - **Queue Management:** The "QUEUE FULL" UI warning logic is preserved using the return value of `sendCommand`.
 - **Polling:** Heartbeats are automatically sent at 400ms (Main) or 1500ms (Background) without cluttering the main loop.
+
+# Phase 3: UI Framework Core (The Screen Stack)
+
+## Overview
+This phase implements the core UI framework, replacing the legacy enum-based navigation with an Object-Oriented "Screen Stack" architecture. This ensures memory safety (static allocation), CPU efficiency (dirty-flag rendering), and modularity.
+
+## Changes
+
+### 1. The Screen Interface
+- **File:** `Screen.h`
+- **Description:** Abstract base class for all UI views.
+- **Key Methods:**
+    - `onEnter()`: Reset state, request configs.
+    - `onExit()`: Cleanup.
+    - `draw(U8G2& display)`: Render logic (pure virtual).
+    - `handleInput(InputEvent)`: Input processing (pure virtual).
+    - `tick()`: Logical updates (animations, data polling).
+- **Optimization:** Implements a `_needsRedraw` flag. `draw()` is only called when this flag is true.
+
+### 2. The Screen Manager
+- **Files:** `ScreenManager.h`, `ScreenManager.cpp`
+- **Description:** Singleton controller managing the navigation stack.
+- **Stack:** Static array `Screen* _stack[5]` (No dynamic allocation).
+- **Navigation:**
+    - `push(Screen*)`: Adds a screen to the stack.
+    - `pop()`: Removes the top screen, returning to the previous one.
+    - `popToRoot()`: Instantly returns to the bottom-most screen (Dashboard).
+- **Render Cascade:**
+    - `tick(U8G2& display)` is called in the main loop.
+    - It calls `currentScreen->tick()` for logic.
+    - It checks `currentScreen->needsRedraw()`.
+    - If dirty, it clears the buffer, calls `draw()`, and sends the buffer to the OLED.
+
+## Architecture Notes
+- **Zero Allocation:** All screens must be instantiated as global/static objects. The `ScreenManager` only stores pointers.
+- **Input Routing:** Inputs flow from `InputManager` -> `ScreenManager` -> `Active Screen`.
+- **Integration:** The `ScreenManager` is ready to be integrated into `PultV1_0_2.ino`. The legacy switch-case logic remains active until individual screens are ported to the new interface.
+
+## Next Steps
+- **Phase 4:** Develop reusable Widgets (`ScrollingListWidget`, `NumericSpinnerWidget`).
+- **Phase 5:** Port the Dashboard and Menu screens to the new `Screen` classes.
