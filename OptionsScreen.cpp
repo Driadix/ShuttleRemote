@@ -6,6 +6,7 @@
 OptionsScreen::OptionsScreen() : _menuList(OptionsScreen::provideMenuItem, OPT_ITEM_COUNT, 4) {}
 
 void OptionsScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     EventBus::subscribe(this);
     DataManager::getInstance().requestConfig(SP::CFG_INTER_PALLET);
     DataManager::getInstance().requestConfig(SP::CFG_REVERSE_MODE);

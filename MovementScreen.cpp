@@ -21,6 +21,7 @@ void MovementScreen::provideMenuItem(uint8_t index, char* buffer) {
 }
 
 void MovementScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     EventBus::subscribe(this);
 }
 
@@ -96,6 +97,7 @@ void MovementAxisScreen::setDirection(bool forward) {
 }
 
 void MovementAxisScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     EventBus::subscribe(this);
 }
 

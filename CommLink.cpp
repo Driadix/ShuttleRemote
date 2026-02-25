@@ -30,6 +30,10 @@ void CommLink::handleRx() {
         if (header) {
             LOG_D("COMM", "RX: [%s] Seq: %d", DebugUtils::getMsgIdName(header->msgID), header->seq);
 
+            // Any valid packet is a keep-alive
+            _model->updateLastRxTime();
+            EventBus::publish(SystemEvent::COMM_RX_ACTIVITY);
+
             uint8_t* payload = (uint8_t*)header + sizeof(SP::FrameHeader);
 
             // Dispatch to TelemetryModel

@@ -14,6 +14,7 @@ public:
     void updateStats(const SP::StatsPacket& packet);
     void updateConfig(uint8_t paramID, int32_t value);
     void setShuttleNumber(uint8_t id);
+    void updateLastRxTime();
 
     // --- Getters ---
     const SP::TelemetryPacket& getTelemetry() const { return _telemetry; }

@@ -6,7 +6,10 @@
 MainMenuScreen::MainMenuScreen()
     : _menuList(MainMenuScreen::provideMenuItem, MENU_ITEM_COUNT, 4) {}
 
-void MainMenuScreen::onEnter() { EventBus::subscribe(this); }
+void MainMenuScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
+    EventBus::subscribe(this);
+}
 void MainMenuScreen::onExit() { EventBus::unsubscribe(this); }
 
 void MainMenuScreen::onEvent(SystemEvent event) {

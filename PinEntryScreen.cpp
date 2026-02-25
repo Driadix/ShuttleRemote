@@ -11,6 +11,7 @@ void PinEntryScreen::setTarget(Screen* target) {
 }
 
 void PinEntryScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     _showAccessDenied = false;
     _accessDeniedTimer = 0;
     // Reset spinner

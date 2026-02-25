@@ -7,6 +7,7 @@ UnloadPalletsScreen::UnloadPalletsScreen()
 }
 
 void UnloadPalletsScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     _state = ENTRY;
     _stateTimer = 0;
     _spinner = NumericSpinnerWidget(2, 0); // Reset

@@ -7,6 +7,7 @@
 EngineeringMenuScreen::EngineeringMenuScreen() : _menuList(EngineeringMenuScreen::provideMenuItem, ENG_ITEM_COUNT, 4) {}
 
 void EngineeringMenuScreen::onEnter() {
+    DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
     DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
     DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
