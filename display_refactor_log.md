@@ -42,10 +42,37 @@ This refactoring phase establishes a sterile boundary between hardware and appli
     - Integrated `InputManager` and `PowerController`.
     - Currently, the main loop prints detected input events to Serial for verification, effectively disabling the old UI interaction logic.
 
-## Verification
-- **Input:** Pressing keys should now output logical event IDs to the Serial monitor.
-- **Power:** The system should automatically enter deep sleep after 25 seconds of inactivity. Pressing any key should wake it (via RTC GPIO wakeup) or reset the idle timer if awake.
+# Phase 2: Data Abstraction (Model) – The DataManager
 
-## Next Steps
-- Re-implement the UI navigation logic using the new `InputEvent` system (Phase 2).
-- Map `InputEvent`s to specific application commands and page transitions.
+## Overview
+This phase centralizes all state management, protocol parsing, and UART communication into a single `DataManager` class. This eliminates global variables for telemetry and configuration and enforces a strict separation between the UI and the data layer.
+
+## Changes
+
+### 1. DataManager Singleton
+- **Files:** `DataManager.h`, `DataManager.cpp`
+- **Description:**
+    - Implemented as a Singleton (`DataManager::getInstance()`).
+    - Encapsulates `ShuttleProtocol.h` usage, `TxJob` queue, and `ProtocolParser`.
+    - Manages all data structs (`TelemetryPacket`, `SensorPacket`, `StatsPacket`, `Config`).
+    - Implements atomic "dirty flags" for UI rendering optimization.
+
+### 2. Command Gateway & Polling Engine
+- **Features:**
+    - **Command Gateway:** `sendCommand(SP::CmdType cmd, ...)` handles packet construction and queuing. Returns `false` if queue is full.
+    - **Context-Aware Polling:** `tick()` automatically handles heartbeats and sensor requests based on the active `PollContext` (MAIN, DEBUG, STATS).
+    - **Manual Mode Logic:** Encapsulated "Dead-Man" heartbeat logic within `tick()` when manual mode is active.
+
+### 3. Main Application Refactor
+- **File:** `PultV1_0_2.ino`
+- **Description:**
+    - Removed all legacy global variables (`txQueue`, `cachedTelemetry`, `parser`, etc.).
+    - Removed raw `Serial2` handling functions (`handleRx`, `processTxQueue`).
+    - `loop()` now calls `DataManager::getInstance().tick()` and updates polling context based on `page`.
+    - `cmdSend` and `keypadEvent` now use `DataManager` API instead of direct queue manipulation.
+    - UI rendering reads data via read-only getters (`getTelemetry()`, etc.).
+
+## Verification
+- **Headless Mode:** The system prints telemetry updates to Serial when dirty flags are consumed.
+- **Queue Management:** The "QUEUE FULL" UI warning logic is preserved using the return value of `sendCommand`.
+- **Polling:** Heartbeats are automatically sent at 400ms (Main) or 1500ms (Background) without cluttering the main loop.

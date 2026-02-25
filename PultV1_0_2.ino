@@ -9,47 +9,22 @@
 #include "InputEvents.h"
 #include "InputManager.h"
 #include "PowerController.h"
+#include "DataManager.h"
 
-namespace SP {
-#include "ShuttleProtocol.h"
-}
-
-// --- Async Tx/Rx Definitions ---
-enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
-
-struct TxJob {
-  uint8_t txBuffer[64];
-  uint8_t txLength;
-  uint8_t seqNum;
-  uint32_t lastTxTime;
-  uint8_t retryCount;
-};
-
-#define TX_QUEUE_SIZE 5
-TxJob txQueue[TX_QUEUE_SIZE];
-uint8_t txHead = 0;
-uint8_t txTail = 0;
-TxState txState = TxState::IDLE;
-
-SP::ProtocolParser parser;
+// --- Global UI State ---
 Preferences prefs;
-SP::TelemetryPacket cachedTelemetry;
-int32_t cachedConfig[16] = {0};
-SP::SensorPacket cachedSensors;
-SP::StatsPacket cachedStats = {0};
 bool isDisplayDirty = true;
 uint32_t lastDisplayUpdate = 0;
 bool isOtaUpdating = false;
-uint8_t nextSeqNum = 0;
 bool showQueueFull = false;
 uint32_t queueFullTimer = 0;
 
-bool isManualMoving = false;
-uint32_t manualHeartbeatTimer = 0;
+// Note: isManualMoving is now managed by DataManager, but we keep a local flag for UI if needed
+// Actually, keypadEvent uses isManualMoving to block other keys or stop manual.
+// We can use DataManager's state or keep a local copy for UI logic simplicity.
+bool isManualMoving = false; // Kept for UI logic (keypad blocking)
 
-uint32_t lastPollTime = 0;
-uint32_t currentPollInterval = 400;
-uint32_t lastSensorPollTime = 0;
+// Polling timers moved to DataManager
 
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
@@ -250,12 +225,6 @@ void cmdSend(uint8_t numcmd);
 int getVoltage();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
-void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
-void handleRx();
-void processTxQueue();
-bool queueCommand(SP::CommandPacket packet, uint8_t targetID);
-bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID);
-bool queueRequest(uint8_t msgID, uint8_t targetID);
 #pragma endregion
 
 #pragma region setup
@@ -315,14 +284,21 @@ void setup()
 
   delay(50);
   
-  // Initialize new Managers
+  // Initialize Managers
   InputManager::init();
   PowerController::init();
+  DataManager::getInstance().init(&Serial2, shuttleNumber);
   
   initRadio();
 
-  AsyncElegantOTA.onStarted([]() { isOtaUpdating = true; });
-  AsyncElegantOTA.onEnd([]() { isOtaUpdating = false; });
+  AsyncElegantOTA.onStarted([]() {
+      isOtaUpdating = true;
+      DataManager::getInstance().setOtaUpdating(true);
+  });
+  AsyncElegantOTA.onEnd([]() {
+      isOtaUpdating = false;
+      DataManager::getInstance().setOtaUpdating(false);
+  });
 }
 #pragma endregion
 
@@ -347,8 +323,37 @@ void loop()
     AsyncElegantOTA.loop();
   }
   
-  handleRx();
-  processTxQueue();
+  // --- DataManager Tick ---
+  DataManager::getInstance().tick();
+
+  // --- Context-Aware Polling Update ---
+  if (!isOtaUpdating) {
+      if (page == MAIN) {
+          DataManager::getInstance().setPollContext(DataManager::PollContext::MAIN_DASHBOARD);
+      } else if (page == DEBUG_INFO) {
+          DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
+      } else if (page == STATS) {
+          DataManager::getInstance().setPollContext(DataManager::PollContext::STATS_VIEW);
+      } else {
+          DataManager::getInstance().setPollContext(DataManager::PollContext::NORMAL);
+      }
+
+      DataManager::getInstance().setManualMoveMode(isManualMoving);
+  }
+
+  // --- Dirty Flag Consumption ---
+  if (DataManager::getInstance().consumeTelemetryDirtyFlag()) {
+      isDisplayDirty = true;
+      // Verification
+      const auto& t = DataManager::getInstance().getTelemetry();
+      Serial.printf("Telemetry Updated: Batt=%d%%, Status=%d\n", t.batteryCharge, t.shuttleStatus);
+  }
+  if (DataManager::getInstance().consumeSensorsDirtyFlag()) isDisplayDirty = true;
+  if (DataManager::getInstance().consumeStatsDirtyFlag()) isDisplayDirty = true;
+  if (DataManager::getInstance().consumeConfigDirtyFlag()) {
+      isDisplayDirty = true;
+      UpdateParam = true;
+  }
   
   // Power Management Tick
   PowerController::tick();
@@ -360,43 +365,6 @@ void loop()
       Serial.print("Event: ");
       Serial.println((int)evt);
       PowerController::feedWatchdog();
-  }
-
-  // --- Context-Aware Polling Engine ---
-  if (!isManualMoving && !isOtaUpdating)
-  {
-    // 1. Determine Polling Interval based on Active Page
-    if (page == MAIN) {
-        currentPollInterval = 400;      // Fast updates for main dashboard
-    } else {
-        currentPollInterval = 1500;     // Background keep-alive for other menus
-    }
-
-    // 2. Execute Heartbeat Polling
-    if (millis() - lastPollTime >= currentPollInterval) {
-        if (queueRequest(SP::MSG_REQ_HEARTBEAT, shuttleNumber)) {
-            lastPollTime = millis();
-        }
-    }
-
-    // 3. Execute Sensor Polling (Specific to DEBUG_INFO)
-    if (page == DEBUG_INFO) {
-        if (millis() - lastSensorPollTime >= 300) {
-             // Only queue if space is available to prevent choking the heartbeat
-             if (queueRequest(SP::MSG_REQ_SENSORS, shuttleNumber)) {
-                lastSensorPollTime = millis();
-             }
-        }
-    }
-
-    if (page == STATS) {
-        static uint32_t lastStatsPollTime = 0;
-        if (millis() - lastStatsPollTime >= 2000) {
-             if (queueRequest(SP::MSG_REQ_STATS, shuttleNumber)) {
-                lastStatsPollTime = millis();
-             }
-        }
-    }
   }
 
   // int Result, Status;
@@ -413,17 +381,6 @@ void loop()
   {
     // displayOffTimer = millis(); // Removed
     if ((millis() - buttonTimer > longPressTime) && (longPressActive == false)) longPressActive = true;
-    if (isManualMoving)
-    {
-      if (millis() - manualHeartbeatTimer >= 200)
-      {
-        if ((txTail + 1) % TX_QUEUE_SIZE != txHead)
-        {
-          queueRequest(SP::MSG_REQ_HEARTBEAT, shuttleNumber);
-        }
-        manualHeartbeatTimer = millis();
-      }
-    }
   }
 
   // Legacy quant logic removed
@@ -478,6 +435,11 @@ void loop()
     {
       if (isDisplayDirty || showQueueFull)
       {
+        const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
+        const SP::SensorPacket& cachedSensors = DataManager::getInstance().getSensors();
+        const SP::StatsPacket& cachedStats = DataManager::getInstance().getStats();
+        // Config is accessed via DataManager::getInstance().getConfig(id)
+
         u8g2.clearBuffer();
       u8g2.setFont(u8g2_font_6x13_t_cyrillic);
       u8g2.setDrawColor(1);
@@ -893,18 +855,18 @@ void loop()
         {
           strmenu[0] = " Пар-ры считаны";
         }
-        strmenu[1] = " Номер шатт " + String(cachedConfig[SP::CFG_SHUTTLE_NUM]);
-        strmenu[2] = " Номер экр " + String(cachedConfig[SP::CFG_CHNL_OFFSET]);
+        strmenu[1] = " Номер шатт " + String(DataManager::getInstance().getConfig(SP::CFG_SHUTTLE_NUM));
+        strmenu[2] = " Номер экр " + String(DataManager::getInstance().getConfig(SP::CFG_CHNL_OFFSET));
         strmenu[3] = " away_set -"; // + String(bitRead(settDataMenu[2], 0));
-        strmenu[4] = " enc_invers " + String(cachedConfig[SP::CFG_REVERSE_MODE]);
+        strmenu[4] = " enc_invers " + String(DataManager::getInstance().getConfig(SP::CFG_REVERSE_MODE));
         strmenu[5] = " slim -"; // + String(bitRead(settDataMenu[2], 2));
         strmenu[6] = " d_canal_off -"; // + String(bitRead(settDataMenu[2], 3));
         strmenu[7] = " away_filifo -"; // + String(bitRead(settDataMenu[2], 4));
-        strmenu[8] = " FIFO_MODE " + String(cachedConfig[SP::CFG_FIFO_LIFO]);
+        strmenu[8] = " FIFO_MODE " + String(DataManager::getInstance().getConfig(SP::CFG_FIFO_LIFO));
         strmenu[9] = " demo_en -"; // + String(bitRead(settDataMenu[2], 6));
         strmenu[10] = " crane_stat -"; // + String(bitRead(settDataMenu[2], 7));
-        strmenu[11] = " stop_aft_pall " + String(cachedConfig[SP::CFG_INTER_PALLET]);
-        strmenu[12] = " upl_wait " + String(cachedConfig[SP::CFG_WAIT_TIME]);
+        strmenu[11] = " stop_aft_pall " + String(DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET));
+        strmenu[12] = " upl_wait " + String(DataManager::getInstance().getConfig(SP::CFG_WAIT_TIME));
         strmenu[13] = " pall_plk " + String(pallet_plank);
         strmenu[14] = " pall_800 " + String(pallet_800_only);
         strmenu[15] = R_VERSION;
@@ -1037,125 +999,113 @@ void loop()
 #pragma region Функции...
 void cmdSend(uint8_t numcmd)
 {
-  SP::CommandPacket cmd;
-  cmd.arg1 = 0;
-  cmd.arg2 = 0;
-  uint8_t target = shuttleNumber;
+  bool result = false;
 
   switch (numcmd)
   {
     case CMD_STOP:
-      cmd.cmdType = SP::CMD_STOP;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_STOP);
       manualMode = false;
       manualCommand = " ";
       break;
     case CMD_STOP_MANUAL:
-      cmd.cmdType = SP::CMD_STOP_MANUAL;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL);
       manualMode = false;
       manualCommand = " ";
       break;
     case CMD_LOAD:
-      cmd.cmdType = SP::CMD_LOAD;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LOAD);
       manualMode = false;
       break;
     case CMD_UNLOAD:
-      cmd.cmdType = SP::CMD_UNLOAD;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_UNLOAD);
       manualMode = false;
       break;
     case CMD_CONT_LOAD:
-      cmd.cmdType = SP::CMD_LONG_LOAD;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD);
       manualMode = false;
       break;
     case CMD_CONT_UNLOAD:
-      cmd.cmdType = SP::CMD_LONG_UNLOAD;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD);
       manualMode = false;
       break;
     case CMD_DEMO:
-      cmd.cmdType = SP::CMD_DEMO;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_DEMO);
       manualMode = false;
       break;
     case CMD_PLATFORM_LIFTING:
-      cmd.cmdType = SP::CMD_LIFT_UP;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP);
       manualCommand = "/\\";
       break;
     case CMD_PLATFORM_UNLIFTING:
-      cmd.cmdType = SP::CMD_LIFT_DOWN;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN);
       manualCommand = "\\/";
       break;
     case CMD_MOVEMENT_LEFT:
-      cmd.cmdType = SP::CMD_MOVE_LEFT_MAN;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN);
       manualCommand = "<<";
       break;
     case CMD_MOVEMENT_RIGHT:
-      cmd.cmdType = SP::CMD_MOVE_RIGHT_MAN;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN);
       manualCommand = ">>";
       break;
     case CMD_UNLOAD_PALLET_BY_NUMBER:
-      cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
-      cmd.arg1 = inputQuant;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD_QTY, inputQuant);
       break;
     case 16:
-      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      // Request Heartbeat (Legacy cmd 16) - managed by polling, but if explicit request needed:
+      // However, CMD_PING is 18. This might be redundant or legacy "Status Request"
+      // queueRequest(SP::MSG_REQ_HEARTBEAT, target);
+      // We don't expose queueRequest directly.
+      // Assuming it's not critical or replaced by polling.
       break;
     case 17:
-      if (!queueConfigSet(SP::CFG_SHUTTLE_NUM, shuttleTempNum, target)) { showQueueFull = true; queueFullTimer = millis(); }
+       result = DataManager::getInstance().setConfig(SP::CFG_SHUTTLE_NUM, shuttleTempNum);
       break;
     case CMD_PING:
-      cmd.cmdType = SP::CMD_PING;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_PING);
       break;
     case CMD_BACK_TO_ORIGIN:
-      cmd.cmdType = SP::CMD_HOME;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_HOME);
       break;
     case CMD_GET_PARAM:
-      if (!queueRequest(SP::MSG_REQ_STATS, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      // Was queueRequest(SP::MSG_REQ_STATS, target);
+      // Stats are polled when in STATS page. But maybe we want to force update?
+      // DataManager doesn't expose manual poll trigger easily.
+      // But setting context to STATS_VIEW triggers poll.
       break;
     case CMD_GET_ERRORS:
-      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      // Was queueRequest(SP::MSG_REQ_HEARTBEAT, target);
       break;
     case CMD_GET_MENU:
-      if (!queueRequest(SP::MSG_REQ_HEARTBEAT, target)) { showQueueFull = true; queueFullTimer = millis(); }
+       // Was queueRequest(SP::MSG_REQ_HEARTBEAT, target);
       break;
     case CMD_PALLETE_COUNT:
-      cmd.cmdType = SP::CMD_COUNT_PALLETS;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_COUNT_PALLETS);
       break;
     case CMD_PACKING_BACK:
-      cmd.cmdType = SP::CMD_COMPACT_R;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_COMPACT_R);
       break;
     case CMD_PACKING_FORWARD:
-      cmd.cmdType = SP::CMD_COMPACT_F;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_COMPACT_F);
       break;
     case 43:
-      cmd.cmdType = SP::CMD_CALIBRATE;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_CALIBRATE);
       break;
     case 44:
-      if (!queueRequest(SP::MSG_REQ_SENSORS, target)) { showQueueFull = true; queueFullTimer = millis(); }
+       // Was queueRequest(SP::MSG_REQ_SENSORS, target);
       break;
     case CMD_RESET:
-      cmd.cmdType = SP::CMD_RESET_ERROR;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_RESET_ERROR);
       break;
     case CMD_MANUAL:
-      cmd.cmdType = SP::CMD_MANUAL_MODE;
-      if (!queueCommand(cmd, target)) { showQueueFull = true; queueFullTimer = millis(); }
+      result = DataManager::getInstance().sendCommand(SP::CMD_MANUAL_MODE);
       break;
+  }
+
+  if (!result) {
+      showQueueFull = true;
+      queueFullTimer = millis();
   }
 }
 
@@ -1172,9 +1122,6 @@ int getVoltage()
   {
     volt = 100;
   }
-  // volt = volt / 100;
-  // Serial2.print("A0 "); Serial2.println(raw);
-  // Serial2.print("Voltage "); Serial2.println(volt);
   return volt;
 }
 
@@ -1186,10 +1133,10 @@ void keypadEvent(KeypadEvent key)
 
       currentKey = key;
       buttonTimer = millis();
-      displayOffTimer = millis();
+      // displayOffTimer = millis();
       mpingtime = millis();
       buttonActive = true;
-      displayOffInterval = 900000;
+      // displayOffInterval = 900000;
 
       if (displayActive)
       {
@@ -1201,6 +1148,7 @@ void keypadEvent(KeypadEvent key)
         {
           shuttleNumber = shuttleTempNum;
           prefs.putUInt("sht_num", shuttleNumber);
+          DataManager::getInstance().setShuttleNumber(shuttleNumber);
           inputQuant = 0;
           delay(300);
           shuttnumst = shuttnum[shuttleNumber - 1];
@@ -1213,27 +1161,24 @@ void keypadEvent(KeypadEvent key)
             case '8':
               if (!isManualMoving)
               {
-                SP::CommandPacket cmd;
-                cmd.cmdType = SP::CMD_MOVE_RIGHT_MAN;
-                cmd.arg1 = 0;
-                cmd.arg2 = 0;
-                if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
-                manualCommand = ">>";
-                isManualMoving = true;
-                manualHeartbeatTimer = millis();
+                if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN)) {
+                    manualCommand = ">>";
+                    isManualMoving = true;
+                    // manualHeartbeatTimer logic moved to DataManager
+                } else {
+                    showQueueFull = true; queueFullTimer = millis();
+                }
               }
               break;
             case '0':
               if (!isManualMoving)
               {
-                SP::CommandPacket cmd;
-                cmd.cmdType = SP::CMD_MOVE_LEFT_MAN;
-                cmd.arg1 = 0;
-                cmd.arg2 = 0;
-                if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
-                manualCommand = "<<";
-                isManualMoving = true;
-                manualHeartbeatTimer = millis();
+                if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN)) {
+                    manualCommand = "<<";
+                    isManualMoving = true;
+                } else {
+                     showQueueFull = true; queueFullTimer = millis();
+                }
               }
               break;
             case '9': cmdSend(CMD_PLATFORM_UNLIFTING); break;
@@ -1262,6 +1207,7 @@ void keypadEvent(KeypadEvent key)
             shuttnewnumst = shuttnum[shuttleTempNum - 1];
             cmdSend(17);
             prefs.putUInt("sht_num", shuttleNumber);
+            DataManager::getInstance().setShuttleNumber(shuttleNumber);
             inputQuant = 0;
             delay(300);
             // cmdStatus();
@@ -1305,8 +1251,6 @@ void keypadEvent(KeypadEvent key)
       isDisplayDirty = true;
       if (displayActive && dispactivate)
       {
-        // Buffer[0]=0;
-        // Client.WriteArea(S7AreaMK, 0, 360, 1, &Buffer); // Stop manual movements
         switch (key)
         {
           case 'D':  // Long press OK - Demo mode
@@ -1344,10 +1288,10 @@ void keypadEvent(KeypadEvent key)
                 page = OPTIONS;
                 cursorPos = 1;
                 // Request Options Params
-                queueConfigGet(SP::CFG_INTER_PALLET, shuttleNumber);
-                queueConfigGet(SP::CFG_REVERSE_MODE, shuttleNumber);
-                queueConfigGet(SP::CFG_MAX_SPEED, shuttleNumber);
-                queueConfigGet(SP::CFG_MIN_BATT, shuttleNumber);
+                DataManager::getInstance().requestConfig(SP::CFG_INTER_PALLET);
+                DataManager::getInstance().requestConfig(SP::CFG_REVERSE_MODE);
+                DataManager::getInstance().requestConfig(SP::CFG_MAX_SPEED);
+                DataManager::getInstance().requestConfig(SP::CFG_MIN_BATT);
               }
               else if (page == MENU && cursorPos == 7)
               {
@@ -1394,10 +1338,10 @@ void keypadEvent(KeypadEvent key)
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
                   // Request Eng Params
-                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
-                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
-                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
-                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                  DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
+                  DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
+                  DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
+                  DataManager::getInstance().requestConfig(SP::CFG_CHNL_OFFSET);
                 }
                 else
                 {
@@ -1420,11 +1364,11 @@ void keypadEvent(KeypadEvent key)
                 inputQuant = numquant1 * 10 + numquant2;
                 if (inputQuant > 0)
                 {
-                   SP::CommandPacket cmd;
-                   cmd.cmdType = SP::CMD_LONG_UNLOAD_QTY;
-                   cmd.arg1 = inputQuant;
-                   if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
-                  page = UNLOAD_PALLETE_SUCC;
+                   if (DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD_QTY, inputQuant)) {
+                        page = UNLOAD_PALLETE_SUCC;
+                   } else {
+                       showQueueFull = true; queueFullTimer = millis();
+                   }
                 }
                 else
                   page = UNLOAD_PALLETE_FAIL;
@@ -1509,10 +1453,10 @@ void keypadEvent(KeypadEvent key)
                   page = OPTIONS;
                   cursorPos = 1;
                   // Request Options Params (returning from Eng Menu)
-                  queueConfigGet(SP::CFG_INTER_PALLET, shuttleNumber);
-                  queueConfigGet(SP::CFG_REVERSE_MODE, shuttleNumber);
-                  queueConfigGet(SP::CFG_MAX_SPEED, shuttleNumber);
-                  queueConfigGet(SP::CFG_MIN_BATT, shuttleNumber);
+                  DataManager::getInstance().requestConfig(SP::CFG_INTER_PALLET);
+                  DataManager::getInstance().requestConfig(SP::CFG_REVERSE_MODE);
+                  DataManager::getInstance().requestConfig(SP::CFG_MAX_SPEED);
+                  DataManager::getInstance().requestConfig(SP::CFG_MIN_BATT);
                 }
               }
               else if (page == SYSTEM_SETTINGS_WARN && cursorPos == 4)
@@ -1529,10 +1473,10 @@ void keypadEvent(KeypadEvent key)
               {
                 cursorPos = 1;
                 page = ENGINEERING_MENU;
-                queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
-                queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
-                queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
-                queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
+                DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
+                DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
+                DataManager::getInstance().requestConfig(SP::CFG_CHNL_OFFSET);
               }
               else if (page == STATUS_PGG)
               {
@@ -1547,10 +1491,10 @@ void keypadEvent(KeypadEvent key)
                     page = pageAfterPin;
                     cursorPos = 1;
                     if (page == ENGINEERING_MENU) {
-                        queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
-                        queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
-                        queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
-                        queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                        DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
+                        DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
+                        DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
+                        DataManager::getInstance().requestConfig(SP::CFG_CHNL_OFFSET);
                     }
                   }
                   else
@@ -1587,10 +1531,10 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
-                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
-                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
-                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
-                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                  DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
+                  DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
+                  DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
+                  DataManager::getInstance().requestConfig(SP::CFG_CHNL_OFFSET);
                 }
               }
               else if (page == MOVEMENT)
@@ -1609,10 +1553,10 @@ void keypadEvent(KeypadEvent key)
                 {
                   page = ENGINEERING_MENU;
                   cursorPos = 1;
-                  queueConfigGet(SP::CFG_SHUTTLE_LEN, shuttleNumber);
-                  queueConfigGet(SP::CFG_WAIT_TIME, shuttleNumber);
-                  queueConfigGet(SP::CFG_MPR_OFFSET, shuttleNumber);
-                  queueConfigGet(SP::CFG_CHNL_OFFSET, shuttleNumber);
+                  DataManager::getInstance().requestConfig(SP::CFG_SHUTTLE_LEN);
+                  DataManager::getInstance().requestConfig(SP::CFG_WAIT_TIME);
+                  DataManager::getInstance().requestConfig(SP::CFG_MPR_OFFSET);
+                  DataManager::getInstance().requestConfig(SP::CFG_CHNL_OFFSET);
                 }
               }
               else if (page == MOVEMENT_RIGHT)
@@ -1630,7 +1574,11 @@ void keypadEvent(KeypadEvent key)
                 else if (cursorPos == 7) cmd.arg1 = 3000;
                 else if (cursorPos == 8) cmd.arg1 = 5000;
 
-                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
+                if (cursorPos < 9) {
+                    if (!DataManager::getInstance().sendCommand((SP::CmdType)cmd.cmdType, cmd.arg1)) {
+                         showQueueFull = true; queueFullTimer = millis();
+                    }
+                }
 
                 if (cursorPos == 9)
                 {
@@ -1653,7 +1601,11 @@ void keypadEvent(KeypadEvent key)
                 else if (cursorPos == 7) cmd.arg1 = 3000;
                 else if (cursorPos == 8) cmd.arg1 = 5000;
 
-                if (cursorPos < 9) { if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); } }
+                if (cursorPos < 9) {
+                     if (!DataManager::getInstance().sendCommand((SP::CmdType)cmd.cmdType, cmd.arg1)) {
+                         showQueueFull = true; queueFullTimer = millis();
+                    }
+                }
 
                 if (cursorPos == 9)
                 {
@@ -1689,13 +1641,12 @@ void keypadEvent(KeypadEvent key)
           case '8':
             if (isManualMoving)
             {
-              SP::CommandPacket cmd;
-              cmd.cmdType = SP::CMD_STOP_MANUAL;
-              cmd.arg1 = 0;
-              cmd.arg2 = 0;
-              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
-              manualCommand = " ";
-              isManualMoving = false;
+              if (DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL)) {
+                manualCommand = " ";
+                isManualMoving = false;
+              } else {
+                 showQueueFull = true; queueFullTimer = millis();
+              }
             }
             else if (!manualMode && longPressActive)
             {
@@ -1786,13 +1737,12 @@ void keypadEvent(KeypadEvent key)
           case '0':
             if (isManualMoving)
             {
-              SP::CommandPacket cmd;
-              cmd.cmdType = SP::CMD_STOP_MANUAL;
-              cmd.arg1 = 0;
-              cmd.arg2 = 0;
-              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
-              manualCommand = " ";
-              isManualMoving = false;
+               if (DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL)) {
+                manualCommand = " ";
+                isManualMoving = false;
+               } else {
+                  showQueueFull = true; queueFullTimer = millis();
+               }
             }
             else if (!manualMode && longPressActive)
             {
@@ -1968,10 +1918,9 @@ void keypadEvent(KeypadEvent key)
             else if (page == STATUS_PGG && cursorPos == 2)
             {
               logWrite = !logWrite;
-              SP::CommandPacket cmd;
-              cmd.cmdType = SP::CMD_LOG_MODE;
-              cmd.arg1 = logWrite;
-              if (!queueCommand(cmd, shuttleNumber)) { showQueueFull = true; queueFullTimer = millis(); }
+              if (!DataManager::getInstance().sendCommand(SP::CMD_LOG_MODE, logWrite)) {
+                 showQueueFull = true; queueFullTimer = millis();
+              }
               cmdSend(44);
             }
             break;
@@ -2069,8 +2018,8 @@ void keypadEvent(KeypadEvent key)
             }
             else if (page == MENU && cursorPos == 3)
             {  // режим fifo/lifo
-              bool newMode = !((cachedTelemetry.stateFlags & 0x20) != 0);
-              queueConfigSet(SP::CFG_FIFO_LIFO, newMode ? 1 : 0, shuttleNumber);
+              bool newMode = !((DataManager::getInstance().getTelemetry().stateFlags & 0x20) != 0);
+              DataManager::getInstance().setConfig(SP::CFG_FIFO_LIFO, newMode ? 1 : 0);
             }
             else if (page == STATUS_PGG && cursorPos == 2)
             {
@@ -2098,7 +2047,7 @@ void keypadEvent(KeypadEvent key)
               {
                 cmdSend(CMD_CONT_UNLOAD);
               }
-              else if (cachedTelemetry.shuttleStatus == 10)
+              else if (DataManager::getInstance().getTelemetry().shuttleStatus == 10)
               {
                 // inputQuant++; // Legacy behavior?
                 uctimer = millis();
@@ -2148,9 +2097,10 @@ void keypadEvent(KeypadEvent key)
             }
             hideshuttnum = true;
             {
-              SP::CommandPacket cmd;
-              cmd.cmdType = SP::CMD_PING;
-              if (!queueCommand(cmd, Tempshutnum)) { showQueueFull = true; queueFullTimer = millis(); }
+              // Ping is used as a safe "Check Alive" which also updates status
+              if (!DataManager::getInstance().sendCommand(SP::CMD_PING)) {
+                   showQueueFull = true; queueFullTimer = millis();
+              }
             }
           }
         }
@@ -2207,196 +2157,6 @@ void MenuOut()
       u8g2.print(strmenu[i - 1]);
     else
       u8g2.print(strmenu[cursorPos + i - 6]);
-  }
-}
-
-bool queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
-  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
-  if (nextTail != txHead) {
-    TxJob* job = &txQueue[txTail];
-    job->seqNum = nextSeqNum++;
-    job->retryCount = 0;
-
-    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
-    header->sync1 = SP::PROTOCOL_SYNC_1;
-    header->sync2 = SP::PROTOCOL_SYNC_2;
-    header->length = sizeof(SP::CommandPacket);
-    header->targetID = targetID;
-    header->seq = job->seqNum;
-    header->msgID = SP::MSG_COMMAND;
-
-    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cmd, sizeof(SP::CommandPacket));
-    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket));
-    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::CommandPacket) + 2;
-
-    txTail = nextTail;
-    return true;
-  }
-  return false;
-}
-
-bool queueRequest(uint8_t msgID, uint8_t targetID) {
-  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
-  if (nextTail != txHead) {
-    TxJob* job = &txQueue[txTail];
-    job->seqNum = nextSeqNum++;
-    job->retryCount = 0;
-
-    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
-    header->sync1 = SP::PROTOCOL_SYNC_1;
-    header->sync2 = SP::PROTOCOL_SYNC_2;
-    header->length = 0;
-    header->targetID = targetID;
-    header->seq = job->seqNum;
-    header->msgID = msgID;
-
-    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader));
-    job->txLength = sizeof(SP::FrameHeader) + 2;
-
-    txTail = nextTail;
-    return true;
-  }
-  return false;
-}
-
-bool queueConfigSet(uint8_t paramID, int32_t value, uint8_t targetID) {
-  uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
-  if (nextTail != txHead) {
-    TxJob* job = &txQueue[txTail];
-    job->seqNum = nextSeqNum++;
-    job->retryCount = 0;
-
-    SP::ConfigPacket cfg;
-    cfg.paramID = paramID;
-    cfg.value = value;
-
-    SP::FrameHeader* header = (SP::FrameHeader*)job->txBuffer;
-    header->sync1 = SP::PROTOCOL_SYNC_1;
-    header->sync2 = SP::PROTOCOL_SYNC_2;
-    header->length = sizeof(SP::ConfigPacket);
-    header->targetID = targetID;
-    header->seq = job->seqNum;
-    header->msgID = SP::MSG_CONFIG_SET;
-
-    memcpy(job->txBuffer + sizeof(SP::FrameHeader), &cfg, sizeof(SP::ConfigPacket));
-    SP::ProtocolUtils::appendCRC(job->txBuffer, sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket));
-    job->txLength = sizeof(SP::FrameHeader) + sizeof(SP::ConfigPacket) + 2;
-
-    txTail = nextTail;
-    return true;
-  }
-  return false;
-}
-
-void processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
-  if (txState == TxState::WAITING_ACK && txHead != txTail) {
-    if (txQueue[txHead].seqNum == seq) {
-      txHead = (txHead + 1) % TX_QUEUE_SIZE;
-      txState = TxState::IDLE;
-    }
-  }
-}
-
-void processTxQueue() {
-  if (isOtaUpdating) return;
-
-  if (txState == TxState::IDLE) {
-    if (txHead != txTail) {
-      TxJob* job = &txQueue[txHead];
-
-      if (Serial2.availableForWrite() >= job->txLength) {
-          Serial2.write(job->txBuffer, job->txLength);
-          job->lastTxTime = millis();
-          txState = TxState::WAITING_ACK;
-      }
-    }
-  } else if (txState == TxState::WAITING_ACK) {
-    if (txHead != txTail) {
-      TxJob* job = &txQueue[txHead];
-      if (millis() - job->lastTxTime > 500) {
-        if (job->retryCount < 3) {
-          if (Serial2.availableForWrite() >= job->txLength) {
-              job->retryCount++;
-              Serial2.write(job->txBuffer, job->txLength);
-              job->lastTxTime = millis();
-          }
-        } else {
-          txState = TxState::TIMEOUT_ERROR;
-        }
-      }
-    } else {
-      txState = TxState::IDLE;
-    }
-  } else if (txState == TxState::TIMEOUT_ERROR) {
-      if (txHead != txTail) {
-        txHead = (txHead + 1) % TX_QUEUE_SIZE;
-      }
-      txState = TxState::IDLE;
-  }
-}
-
-void handleRx() {
-  if (isOtaUpdating) return;
-
-  while (Serial2.available()) {
-    uint8_t byte = Serial2.read();
-    SP::FrameHeader* header = parser.feed(byte);
-
-    if (header) {
-      uint8_t* payload = (uint8_t*)header + sizeof(SP::FrameHeader);
-
-      switch (header->msgID) {
-        case SP::MSG_ACK:
-          processIncomingAck(header->seq, (SP::AckPacket*)payload);
-          break;
-
-        case SP::MSG_HEARTBEAT:
-          {
-            if (header->length == sizeof(SP::TelemetryPacket)) {
-                if (memcmp(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket)) != 0) {
-                    memcpy(&cachedTelemetry, payload, sizeof(SP::TelemetryPacket));
-                    isDisplayDirty = true;
-                }
-            }
-          }
-          break;
-
-        case SP::MSG_SENSORS:
-          {
-            if (header->length == sizeof(SP::SensorPacket)) {
-                if (memcmp(&cachedSensors, payload, sizeof(SP::SensorPacket)) != 0) {
-                    memcpy(&cachedSensors, payload, sizeof(SP::SensorPacket));
-                    isDisplayDirty = true;
-                }
-            }
-          }
-          break;
-
-        case SP::MSG_CONFIG_REP:
-          {
-            if (header->length == sizeof(SP::ConfigPacket)) {
-                SP::ConfigPacket* pkt = (SP::ConfigPacket*)payload;
-                if (pkt->paramID < 16) {
-                    cachedConfig[pkt->paramID] = pkt->value;
-                    UpdateParam = true;
-                    isDisplayDirty = true;
-                }
-            }
-          }
-          break;
-
-        case SP::MSG_STATS:
-          {
-            if (header->length == sizeof(SP::StatsPacket)) {
-                if (memcmp(&cachedStats, payload, sizeof(SP::StatsPacket)) != 0) {
-                    memcpy(&cachedStats, payload, sizeof(SP::StatsPacket));
-                    isDisplayDirty = true;
-                }
-            }
-          }
-          break;
-      }
-    }
   }
 }
 #pragma endregion
