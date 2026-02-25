@@ -1,6 +1,5 @@
 #pragma once
 #include "Screen.h"
-#include "StatusBarWidget.h"
 #include "ScrollingListWidget.h"
 #include "DataManager.h"
 #include "EventBus.h"
@@ -17,11 +16,8 @@ public:
     virtual void onEvent(SystemEvent event) override;
 
 private:
-    StatusBarWidget _statusBar;
     ScrollingListWidget _menuList;
-
     static const int ENG_ITEM_COUNT = 12;
     static void provideMenuItem(uint8_t index, char* buffer);
-
     void adjustValue(int idx, bool increase);
 };

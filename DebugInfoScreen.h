@@ -1,6 +1,5 @@
 #pragma once
 #include "Screen.h"
-#include "StatusBarWidget.h"
 #include "DataManager.h"
 #include "EventBus.h"
 
@@ -16,7 +15,6 @@ public:
     virtual void onEvent(SystemEvent event) override;
 
 private:
-    StatusBarWidget _statusBar;
     uint8_t _pageIndex; // 0 = Sensors, 1 = Flags
     uint32_t _lastAnimTick;
     uint8_t _animState;

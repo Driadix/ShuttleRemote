@@ -1,5 +1,6 @@
 #include "DebugInfoScreen.h"
 #include "ScreenManager.h"
+#include <cstdio>
 
 DebugInfoScreen::DebugInfoScreen() : _pageIndex(0), _lastAnimTick(0), _animState(0) {}
 
@@ -20,45 +21,42 @@ void DebugInfoScreen::onEvent(SystemEvent event) {
 }
 
 void DebugInfoScreen::draw(U8G2& display) {
-    _statusBar.draw(display, 0, 0);
-
     const SP::SensorPacket& sensors = DataManager::getInstance().getSensors();
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
+    // Everything is shifted up since the status bar is gone
     if (_pageIndex == 0) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "Forw. chnl dist: %u", sensors.distanceF);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Канал впред: %u", sensors.distanceF);
+        display.drawStr(2, 10, buf);
+
+        snprintf(buf, sizeof(buf), "Канал назад: %u", sensors.distanceR);
         display.drawStr(2, 22, buf);
 
-        snprintf(buf, sizeof(buf), "Rvrs. chnl dist: %u", sensors.distanceR);
-        display.drawStr(2, 32, buf);
+        snprintf(buf, sizeof(buf), "Паллет впред: %u", sensors.distancePltF);
+        display.drawStr(2, 34, buf);
 
-        snprintf(buf, sizeof(buf), "Forw. plt dist:  %u", sensors.distancePltF);
-        display.drawStr(2, 42, buf);
+        snprintf(buf, sizeof(buf), "Паллет назад: %u", sensors.distancePltR);
+        display.drawStr(2, 46, buf);
 
-        snprintf(buf, sizeof(buf), "Rvrs. plt dist:  %u", sensors.distancePltR);
-        display.drawStr(2, 52, buf);
+        snprintf(buf, sizeof(buf), "Энкодер угл: %u", sensors.angle);
+        display.drawStr(2, 58, buf);
 
-        snprintf(buf, sizeof(buf), "Encoder ang: %u", sensors.angle);
-        display.drawStr(2, 62, buf);
-
-        // Simple activity indicator
-        // display.drawGlyph(120, 20, 0x25f7 - _animState); // Requires symbol font
-        display.setCursor(120, 20);
+        // Simple activity indicator at the top right
+        display.setCursor(120, 10);
         if (_animState == 0) display.print("-");
         else if (_animState == 1) display.print("\\");
         else if (_animState == 2) display.print("|");
         else display.print("/");
     } else {
-        display.setFont(u8g2_font_6x13_t_cyrillic);
         for(int i=0; i<8; i++) {
             bool state = (sensors.hardwareFlags & (1 << i)) != 0;
-            char buf[32];
+            char buf[64];
             if (i == 0) snprintf(buf, sizeof(buf), "%d DATCHIK_F1", state);
             else snprintf(buf, sizeof(buf), "%d SENSOR_%d", state, i);
-            display.drawStr(2, 20 + i*10, buf);
+            display.drawStr(2, 10 + i*10, buf); // Shifted up
         }
     }
 
@@ -74,8 +72,6 @@ void DebugInfoScreen::handleInput(InputEvent event) {
         return;
     }
 
-    // Toggle page with UP/DOWN or OK?
-    // Legacy used UP/DOWN to change cursorPos (1 or 2).
     if (event == InputEvent::UP_PRESS) {
         if (_pageIndex > 0) _pageIndex--;
         setDirty();

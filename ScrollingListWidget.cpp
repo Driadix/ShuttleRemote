@@ -62,7 +62,7 @@ void ScrollingListWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     const uint8_t lineHeight = 14;
 
-    char buffer[32];
+    char buffer[64];
 
     // Draw visible items
     for (uint8_t i = 0; i < _visibleItems; i++) {

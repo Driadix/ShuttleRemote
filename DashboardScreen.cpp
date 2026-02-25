@@ -5,11 +5,14 @@
 #include "Lang_RU.h"
 
 DashboardScreen::DashboardScreen()
-    : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), _animX(0), _animFlagX(0), _lastAnimTick(0) {
+    : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), 
+      _tempShuttleNum(1), _isSelectingShuttle(false), _blinkState(false), _shuttleSelectTimer(0), _lastBlinkTick(0),
+      _animX(0), _animFlagX(0), _lastAnimTick(0) {
 }
 
 void DashboardScreen::onEnter() {
     Screen::onEnter();
+    _isSelectingShuttle = false;
     EventBus::subscribe(this);
 }
 
@@ -41,7 +44,7 @@ void DashboardScreen::draw(U8G2& display) {
     // 2. Main Status
     char buf[64];
     if (cachedTelemetry.shuttleStatus == 13) {
-        snprintf(buf, sizeof(buf), "Осталось выгрузить %d", cachedTelemetry.palleteCount);
+        snprintf(buf, sizeof(buf), TXT_LEFT_TO_UNLOAD, cachedTelemetry.palleteCount);
         display.drawStr(0, 25, buf);
     }
     else if (cachedTelemetry.shuttleStatus < 19) {
@@ -54,14 +57,14 @@ void DashboardScreen::draw(U8G2& display) {
 
     // 3. Warnings / Queue Full / Errors
     if (_showQueueFull) {
-        display.drawStr(0, 40, "! QUEUE FULL !");
+        display.drawStr(0, 40, TXT_QUEUE_FULL);
     } else if (cachedTelemetry.errorCode) {
         if (cachedTelemetry.errorCode < 16) {
              snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
              display.drawStr(0, 40, buf);
         }
         else {
-             snprintf(buf, sizeof(buf), "! ERR %d !", cachedTelemetry.errorCode);
+             snprintf(buf, sizeof(buf), TXT_ERR_PREFIX, cachedTelemetry.errorCode);
              display.drawStr(0, 40, buf);
         }
     }
@@ -71,8 +74,23 @@ void DashboardScreen::draw(U8G2& display) {
         display.drawStr(85, 40, _manualCommand.c_str());
     }
 
-    // 5. Draw Animation
+    // 5. Draw Movement Animation
     drawShuttleStatus(display, cachedTelemetry);
+
+    // 6. BOTTOM SHUTTLE INDICATOR (Legacy moving number)
+    display.setFont(u8g2_font_10x20_t_cyrillic);
+    uint8_t shtNumToDraw = _isSelectingShuttle ? _tempShuttleNum : DataManager::getInstance().getShuttleNumber();
+    
+    // Calculate layout identical to old legacy behavior
+    int xOffset = 30 * (shtNumToDraw - 1);
+    if (shtNumToDraw > 4) {
+        xOffset = 100; // Right aligned if number > 4
+    }
+
+    if (!_isSelectingShuttle || _blinkState) {
+        snprintf(buf, sizeof(buf), "|%d|", shtNumToDraw);
+        display.drawStr(xOffset, 63, buf);
+    }
 }
 
 void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket& cachedTelemetry) {
@@ -108,25 +126,21 @@ void DashboardScreen::handleInput(InputEvent event) {
     bool success = true;
 
     switch(event) {
-        case InputEvent::UP_PRESS: // '8' - Move Right
+        case InputEvent::UP_PRESS: // '8'
             if (!_isManualMoving) {
                 if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN)) {
                     _manualCommand = ">>";
                     _isManualMoving = true;
-                } else {
-                    success = false;
-                }
+                } else { success = false; }
             }
             break;
 
-        case InputEvent::DOWN_PRESS: // '0' - Move Left
+        case InputEvent::DOWN_PRESS: // '0'
             if (!_isManualMoving) {
                 if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN)) {
                     _manualCommand = "<<";
                     _isManualMoving = true;
-                } else {
-                    success = false;
-                }
+                } else { success = false; }
             }
             break;
 
@@ -136,9 +150,7 @@ void DashboardScreen::handleInput(InputEvent event) {
                  if (DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL)) {
                      _manualCommand = " ";
                      _isManualMoving = false;
-                 } else {
-                     success = false;
-                 }
+                 } else { success = false; }
              } else {
                  if (event == InputEvent::MANUAL_MODE_PRESS) {
                      DataManager::getInstance().sendCommand(SP::CMD_MANUAL_MODE);
@@ -151,52 +163,65 @@ void DashboardScreen::handleInput(InputEvent event) {
         case InputEvent::LIFT_UP_PRESS: // 'E'
             DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP);
             break;
-
         case InputEvent::LIFT_DOWN_PRESS: // '9'
             DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN);
             break;
+        case InputEvent::LOAD_PRESS: // '5'
+             DataManager::getInstance().sendCommand(SP::CMD_LOAD);
+             break;
+        case InputEvent::LONG_LOAD_PRESS:
+             DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD);
+             break;
+        case InputEvent::UNLOAD_PRESS: // 'C'
+             DataManager::getInstance().sendCommand(SP::CMD_UNLOAD);
+             break;
+        case InputEvent::LONG_UNLOAD_PRESS:
+             DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD);
+             break;
 
         case InputEvent::BACK_PRESS: // '7'
             ScreenManager::getInstance().push(&mainMenuScreen);
             break;
 
-        case InputEvent::LOAD_PRESS: // '5'
-             DataManager::getInstance().sendCommand(SP::CMD_LOAD);
-             break;
-
-        case InputEvent::LONG_LOAD_PRESS:
-             DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD);
-             break;
-
-        case InputEvent::UNLOAD_PRESS: // 'C'
-             DataManager::getInstance().sendCommand(SP::CMD_UNLOAD);
-             break;
-
-        case InputEvent::LONG_UNLOAD_PRESS:
-             DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD);
-             break;
+        // --- SHUTTLE QUICK SELECTION LOGIC ---
+        case InputEvent::OK_SHORT_PRESS:
+        case InputEvent::OK_LONG_PRESS: // 'D'
+            if (_isSelectingShuttle) {
+                DataManager::getInstance().saveLocalShuttleNumber(_tempShuttleNum);
+                _isSelectingShuttle = false;
+                DataManager::getInstance().sendCommand(SP::CMD_PING); // Inform new shuttle
+                setDirty();
+            }
+            break;
 
         case InputEvent::KEY_A_PRESS:
         case InputEvent::KEY_B_PRESS:
-             {
-                 int8_t current = DataManager::getInstance().getShuttleNumber();
-                 if (event == InputEvent::KEY_A_PRESS) current++;
-                 else current--;
-
-                 if (current < 1) current = 1;
-                 if (current > 32) current = 32;
-
-                 DataManager::getInstance().setShuttleNumber(current);
-                 DataManager::getInstance().sendCommand(SP::CMD_PING);
+        case InputEvent::KEY_1_PRESS:
+        case InputEvent::KEY_2_PRESS:
+        case InputEvent::KEY_3_PRESS:
+        case InputEvent::KEY_4_PRESS:
+             if (!_isSelectingShuttle) {
+                 _tempShuttleNum = DataManager::getInstance().getShuttleNumber();
              }
+             _isSelectingShuttle = true;
+             _shuttleSelectTimer = millis();
+             _blinkState = true;
+             
+             if (event == InputEvent::KEY_A_PRESS) {
+                 _tempShuttleNum++;
+             } else if (event == InputEvent::KEY_B_PRESS) {
+                 _tempShuttleNum--;
+             } else {
+                 _tempShuttleNum = (int)event - (int)InputEvent::KEY_1_PRESS + 1;
+             }
+
+             if (_tempShuttleNum < 1) _tempShuttleNum = 1;
+             if (_tempShuttleNum > 32) _tempShuttleNum = 32;
+             
+             setDirty();
              break;
 
         default:
-            if (event >= InputEvent::KEY_1_PRESS && event <= InputEvent::KEY_4_PRESS) {
-                int num = (int)event - (int)InputEvent::KEY_1_PRESS + 1;
-                 DataManager::getInstance().setShuttleNumber(num);
-                 DataManager::getInstance().sendCommand(SP::CMD_PING);
-            }
             break;
     }
 
@@ -210,48 +235,52 @@ void DashboardScreen::handleInput(InputEvent event) {
 void DashboardScreen::tick() {
     DataManager::getInstance().setPollContext(DataManager::PollContext::MAIN_DASHBOARD);
 
-    // Legacy polling removed!
-    // Now handled by onEvent.
-
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {
         _showQueueFull = false;
         setDirty();
     }
 
+    // Shuttle selection timeout and blinking
+    if (_isSelectingShuttle) {
+        if (millis() - _shuttleSelectTimer > 5000) {
+            _isSelectingShuttle = false; // Timeout, revert
+            setDirty();
+        }
+        if (millis() - _lastBlinkTick > 250) {
+            _lastBlinkTick = millis();
+            _blinkState = !_blinkState;
+            setDirty();
+        }
+    }
+
     DataManager::getInstance().setManualMoveMode(_isManualMoving);
 
-    // Animation Tick (e.g., 50ms for smooth 20fps)
+    // Movement Animation Tick (50ms)
     if (millis() - _lastAnimTick > 50) {
         _lastAnimTick = millis();
         bool animChanged = false;
 
         const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
         if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6) {
-            // Forward animation logic
             if (_animFlagX == 0 && _animX < 128) {
                 _animX++;
             } else {
                 _animFlagX = 1;
                 _animX--;
             }
-            if (_animFlagX == 1 && _animX == 0) {
-                _animFlagX = 0;
-            }
+            if (_animFlagX == 1 && _animX == 0) _animFlagX = 0;
             animChanged = true;
         } else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12) {
-            // Reverse animation logic
             if (_animFlagX == 1 && _animX > 1) {
                 _animX--;
             } else {
                 _animFlagX = 0;
                 _animX++;
             }
-            if (_animFlagX == 0 && _animX == 127) {
-                _animFlagX = 1;
-            }
+            if (_animFlagX == 0 && _animX == 127) _animFlagX = 1;
             animChanged = true;
         }
 
-        if (animChanged) setDirty();
+        if (animChanged && !_isSelectingShuttle) setDirty(); 
     }
 }

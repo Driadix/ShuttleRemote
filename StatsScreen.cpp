@@ -1,5 +1,6 @@
 #include "StatsScreen.h"
 #include "ScreenManager.h"
+#include <cstdio>
 
 StatsScreen::StatsScreen() {}
 
@@ -19,26 +20,25 @@ void StatsScreen::onEvent(SystemEvent event) {
 }
 
 void StatsScreen::draw(U8G2& display) {
-    _statusBar.draw(display, 0, 0);
-
     const auto& stats = DataManager::getInstance().getStats();
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
-    char buf[32];
+    char buf[64];
 
-    snprintf(buf, sizeof(buf), "Dist:   %-6lu m", (unsigned long)(stats.totalDist / 1000));
+    // Shifted layout up by ~15 pixels since the status bar is gone, and added Localization
+    snprintf(buf, sizeof(buf), "Путь:   %-6lu м", (unsigned long)(stats.totalDist / 1000));
+    display.drawStr(0, 10, buf);
+
+    snprintf(buf, sizeof(buf), "Циклы:  %-6lu", (unsigned long)stats.loadCounter);
     display.drawStr(0, 25, buf);
 
-    snprintf(buf, sizeof(buf), "Cycles: %-6lu", (unsigned long)stats.loadCounter);
-    display.drawStr(0, 37, buf);
+    snprintf(buf, sizeof(buf), "Аварии: %-5u", stats.crashCount);
+    display.drawStr(0, 40, buf);
 
-    snprintf(buf, sizeof(buf), "Crashes: %-5u", stats.crashCount);
-    display.drawStr(0, 49, buf);
-
-    snprintf(buf, sizeof(buf), "Uptime:  %-6lu m", (unsigned long)stats.totalUptimeMinutes);
-    display.drawStr(0, 61, buf);
+    snprintf(buf, sizeof(buf), "Время:  %-6lu м", (unsigned long)stats.totalUptimeMinutes);
+    display.drawStr(0, 55, buf);
 }
 
 void StatsScreen::handleInput(InputEvent event) {

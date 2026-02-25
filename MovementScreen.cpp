@@ -2,20 +2,20 @@
 #include "UI_Graph.h" // For instances
 #include "ScreenManager.h"
 #include <cstdio>
+#include <cstring>
 
 // --- MovementScreen ---
 
 MovementScreen::MovementScreen()
-    : _statusBar(),
-      _menuList(MovementScreen::provideMenuItem, 3, 4)
+    : _menuList(MovementScreen::provideMenuItem, 3, 4)
 {
 }
 
 void MovementScreen::provideMenuItem(uint8_t index, char* buffer) {
     switch(index) {
-        case 0: strcpy(buffer, "Movement >>"); break;
-        case 1: strcpy(buffer, "Movement <<"); break;
-        case 2: strcpy(buffer, "Back"); break;
+        case 0: strcpy(buffer, "Движение >>"); break;
+        case 1: strcpy(buffer, "Движение <<"); break;
+        case 2: strcpy(buffer, "Назад"); break;
         default: buffer[0] = '\0'; break;
     }
 }
@@ -35,8 +35,7 @@ void MovementScreen::onEvent(SystemEvent event) {
 }
 
 void MovementScreen::draw(U8G2& display) {
-    _statusBar.draw(display, 0, 0);
-    _menuList.draw(display, 0, 16);
+    _menuList.draw(display, 0, 0); // Shifted to top
 }
 
 void MovementScreen::handleInput(InputEvent event) {
@@ -79,17 +78,16 @@ const int32_t MovementAxisScreen::_distances[8] = {
 };
 
 MovementAxisScreen::MovementAxisScreen()
-    : _statusBar(),
-      _menuList(MovementAxisScreen::provideMenuItem, 9, 4),
+    : _menuList(MovementAxisScreen::provideMenuItem, 9, 4),
       _isForward(true)
 {
 }
 
 void MovementAxisScreen::provideMenuItem(uint8_t index, char* buffer) {
     if (index < 8) {
-        snprintf(buffer, 32, "%ld cm", (long)_distances[index] / 10);
+        snprintf(buffer, 64, "%ld см", (long)_distances[index] / 10);
     } else {
-        strcpy(buffer, "Back");
+        strcpy(buffer, "Назад");
     }
 }
 
@@ -112,14 +110,14 @@ void MovementAxisScreen::onEvent(SystemEvent event) {
 }
 
 void MovementAxisScreen::draw(U8G2& display) {
-    _statusBar.draw(display, 0, 0);
-
     display.setFont(u8g2_font_6x13_t_cyrillic);
-    // Show direction indicator
-    display.setCursor(110, 25);
+    display.setDrawColor(1);
+    
+    // Show direction indicator in the top right corner
+    display.setCursor(105, 12);
     display.print(_isForward ? ">>" : "<<");
 
-    _menuList.draw(display, 0, 16);
+    _menuList.draw(display, 0, 0); // Shifted to top
 }
 
 void MovementAxisScreen::handleInput(InputEvent event) {
@@ -132,21 +130,13 @@ void MovementAxisScreen::handleInput(InputEvent event) {
         int idx = _menuList.getCursorIndex();
 
         if (idx < 8) {
-            // Send command
             SP::CmdType cmd = _isForward ? SP::CMD_MOVE_DIST_F : SP::CMD_MOVE_DIST_R;
             int32_t dist = _distances[idx];
 
             if (DataManager::getInstance().sendCommand(cmd, dist)) {
-                // Success feedback? Maybe pop back to MovementScreen?
                 ScreenManager::getInstance().pop();
-            } else {
-                // Queue full
-                // Could show warning, but ScreenManager handles it?
-                // No, DashboardScreen handles it.
-                // We should probably stay here.
             }
         } else {
-            // Back
             ScreenManager::getInstance().pop();
         }
         return;

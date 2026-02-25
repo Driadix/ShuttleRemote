@@ -7,7 +7,6 @@ class DashboardScreen : public Screen {
 public:
     DashboardScreen();
 
-    // Observer Lifecycle
     void onEnter() override;
     void onExit() override;
     void onEvent(SystemEvent event) override;
@@ -24,6 +23,12 @@ private:
     String _manualCommand;
     uint32_t _queueFullTimer;
     bool _showQueueFull;
+
+    uint8_t _tempShuttleNum;
+    bool _isSelectingShuttle;
+    bool _blinkState;
+    uint32_t _shuttleSelectTimer;
+    uint32_t _lastBlinkTick;
 
     // Animation State
     uint8_t _animX;
