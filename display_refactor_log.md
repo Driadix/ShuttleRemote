@@ -117,3 +117,53 @@ This phase implements the core UI framework, replacing the legacy enum-based nav
 ## Next Steps
 - **Phase 4:** Develop reusable Widgets (`ScrollingListWidget`, `NumericSpinnerWidget`).
 - **Phase 5:** Port the Dashboard and Menu screens to the new `Screen` classes.
+
+# Phase 4: Reusable Widget Library (Composition)
+
+## Overview
+This phase abstracts common UI elements into reusable, composable widgets, eliminating repetitive drawing code and hardcoded logic.
+
+## Changes
+
+### 1. Base Widget Interface
+- **File:** `Widget.h`
+- **Description:**
+    - Defines the abstract base class `Widget`.
+    - Key methods: `draw(U8G2&, x, y)` and `handleInput(InputEvent)`.
+    - Enforces coordinate-relative drawing (widgets don't know absolute screen position).
+    - Returns `true` from `handleInput` if state changed, triggering a parent screen redraw.
+
+### 2. Scrolling List Widget
+- **Files:** `ScrollingListWidget.h`, `ScrollingListWidget.cpp`
+- **Description:**
+    - Manages a list of strings with a scrolling cursor.
+    - Handles pagination (view window) automatically.
+    - Implements logic for wrapping cursor (top-to-bottom, bottom-to-top).
+    - **Usage:** Pass an array of `const char*` pointers. The widget handles the rest.
+
+### 3. Numeric Spinner Widget
+- **Files:** `NumericSpinnerWidget.h`, `NumericSpinnerWidget.cpp`
+- **Description:**
+    - Allows editing multi-digit numbers (e.g., PIN, Quantity) digit-by-digit.
+    - Uses `UP`/`DOWN` to change digits, `OK` to navigate between digits.
+    - Renders the active digit with an underline cursor.
+    - Helper `getValue()` returns the combined integer.
+
+### 4. Status Bar Widget
+- **Files:** `StatusBarWidget.h`, `StatusBarWidget.cpp`
+- **Description:**
+    - A specialized observer widget for the top banner.
+    - Reads directly from `DataManager` (telemetry).
+    - **Features:**
+        - **Shuttle ID:** Displays current Shuttle ID (e.g., "A1").
+        - **Mode:** Displays "FIFO" or "LIFO".
+        - **Battery:** Draws a dynamic battery icon based on charge percentage (ported from legacy logic).
+    - Ensures consistent status display across all screens without code duplication.
+
+## Verification
+- **Test Harness:** `test_widgets.cpp` created to manually verify logic flow (instantiation, input handling, state transitions).
+- **Compilation:** Verified header inclusions and dependencies.
+- **Design:** strictly adhered to zero-allocation and static buffer constraints.
+
+## Next Steps
+- **Phase 5:** Port the main `DashboardScreen` and `MenuScreen` using these widgets.
