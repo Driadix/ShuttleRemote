@@ -1,7 +1,7 @@
 #include "TelemetryModel.h"
 #include <Arduino.h>
 
-TelemetryModel::TelemetryModel() : _shuttleNumber(1) {
+TelemetryModel::TelemetryModel() : _shuttleNumber(1), _lastRxTime(0), _isConnected(false) {
     memset(&_telemetry, 0, sizeof(_telemetry));
     memset(&_sensors, 0, sizeof(_sensors));
     memset(&_stats, 0, sizeof(_stats));
@@ -9,6 +9,7 @@ TelemetryModel::TelemetryModel() : _shuttleNumber(1) {
 }
 
 void TelemetryModel::updateTelemetry(const SP::TelemetryPacket& packet) {
+    _lastRxTime = millis();
     if (memcmp(&_telemetry, &packet, sizeof(SP::TelemetryPacket)) != 0) {
         memcpy(&_telemetry, &packet, sizeof(SP::TelemetryPacket));
         EventBus::publish(SystemEvent::TELEMETRY_UPDATED);

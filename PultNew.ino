@@ -33,16 +33,6 @@ int8_t shuttleNumber = 1;
 bool displayActive = true;
 
 const int rfout0 = 15;  // D3
-const int Battery_Pin = 36;
-const int Charge_Pin = 39;
-
-int8_t chargercount = 0;
-
-uint8_t battindicat = 0;
-int chargact = 0;
-uint8_t prevpercent = 100;
-
-unsigned long checkA0time = 0;
 
 void initRadio() {
   digitalWrite(rfout0, HIGH);
@@ -66,7 +56,7 @@ void initRadio() {
 void setup()
 {
   pinMode(rfout0, OUTPUT);
-  pinMode(Charge_Pin, INPUT);
+  // Charge Pin mode set in PowerController
 
   Serial.begin(19200);
   Serial2.begin(9600);
@@ -103,7 +93,9 @@ void setup()
   
   // Initialize Managers
   InputManager::init();
-  PowerController::init();
+  const int BATTERY_PIN = 36;
+  const int CHARGE_PIN = 39;
+  PowerController::init(BATTERY_PIN, CHARGE_PIN);
   DataManager::getInstance().init(&Serial2, shuttleNumber);
   DataManager::getInstance().setRadioChannel(savedChannel);
   
@@ -151,52 +143,6 @@ void loop()
       ScreenManager::getInstance().tick(u8g2);
   }
 
-  // --- Battery Monitoring ---
-  if (displayActive)
-  {
-    if (millis() - checkA0time > 500)
-    {
-      checkA0time = millis();
-
-      // Charging Logic (Legacy)
-      if (!digitalRead(Charge_Pin)) {
-        chargercount = 8;
-      } else {
-        chargercount--;
-        if (chargercount <= 0) {
-          chargact = 0;
-          chargercount = 0;
-        }
-      }
-      if (chargercount > 0) {
-        chargact = 1;
-        prevpercent = 100;
-        battindicat += 25;
-        if (battindicat > 100) battindicat = 0;
-      }
-
-      // Update DataManager with Remote Battery
-      DataManager::getInstance().setRemoteBatteryLevel(getVoltage());
-    }
-  }
-  else
-    digitalWrite(rfout0, HIGH);
-}
-
-//заряд
-int getVoltage()
-{
-  int raw = analogRead(Battery_Pin);
-  int volt = map(raw, 740, 1100, 0, 100);
-  if (volt < 0)
-  {
-    volt = 0;
-  }
-  else if (volt > 100)
-  {
-    volt = 100;
-  }
-  return volt;
 }
 
 void setRadioChannel(uint8_t ch) {

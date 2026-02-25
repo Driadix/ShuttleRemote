@@ -36,46 +36,56 @@ void DashboardScreen::onEvent(SystemEvent event) {
 void DashboardScreen::draw(U8G2& display) {
     _statusBar.draw(display, 0, 0);
 
-    const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
-
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1); // White text
 
-    // 2. Main Status
-    char buf[64];
-    if (cachedTelemetry.shuttleStatus == 13) {
-        snprintf(buf, sizeof(buf), TXT_LEFT_TO_UNLOAD, cachedTelemetry.palleteCount);
-        display.drawStr(0, 25, buf);
-    }
-    else if (cachedTelemetry.shuttleStatus < 19) {
-        display.drawStr(0, 25, SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
-    }
-    else {
-        snprintf(buf, sizeof(buf), "Status: %d", cachedTelemetry.shuttleStatus);
-        display.drawStr(0, 25, buf);
-    }
+    if (!DataManager::getInstance().isConnected()) {
+        display.drawStr(0, 25, "Подключение..."); // Connecting...
+        // Hide movement animations when disconnected
+    } else {
+        const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
+        char buf[64];
 
-    // 3. Warnings / Queue Full / Errors
-    if (_showQueueFull) {
-        display.drawStr(0, 40, TXT_QUEUE_FULL);
-    } else if (cachedTelemetry.errorCode) {
-        if (cachedTelemetry.errorCode < 16) {
-             snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
-             display.drawStr(0, 40, buf);
+        // 2. Main Status
+        if (cachedTelemetry.shuttleStatus == 13) {
+            snprintf(buf, sizeof(buf), TXT_LEFT_TO_UNLOAD, cachedTelemetry.palleteCount);
+            display.drawStr(0, 25, buf);
+        }
+        else if (cachedTelemetry.shuttleStatus < 19) {
+            display.drawStr(0, 25, SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
         }
         else {
-             snprintf(buf, sizeof(buf), TXT_ERR_PREFIX, cachedTelemetry.errorCode);
-             display.drawStr(0, 40, buf);
+            snprintf(buf, sizeof(buf), "Status: %d", cachedTelemetry.shuttleStatus);
+            display.drawStr(0, 25, buf);
         }
+
+        // 3. Warnings / Queue Full / Errors
+        if (_showQueueFull) {
+            display.drawStr(0, 40, TXT_QUEUE_FULL);
+        } else if (cachedTelemetry.errorCode) {
+            if (cachedTelemetry.errorCode < 16) {
+                 snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
+                 display.drawStr(0, 40, buf);
+            }
+            else {
+                 snprintf(buf, sizeof(buf), TXT_ERR_PREFIX, cachedTelemetry.errorCode);
+                 display.drawStr(0, 40, buf);
+            }
+        }
+
+        // 4. Manual Command
+        if (_isManualMoving) {
+            display.drawStr(85, 40, _manualCommand.c_str());
+        }
+
+        // 5. Draw Movement Animation
+        drawShuttleStatus(display, cachedTelemetry);
     }
 
-    // 4. Manual Command
-    if (_isManualMoving) {
-        display.drawStr(85, 40, _manualCommand.c_str());
+    // ACK Status
+    if (DataManager::getInstance().isWaitingForAck()) {
+        display.drawStr(0, 52, "Ожидание ACK..."); // Waiting for ACK...
     }
-
-    // 5. Draw Movement Animation
-    drawShuttleStatus(display, cachedTelemetry);
 
     // 6. BOTTOM SHUTTLE INDICATOR (Legacy moving number)
     display.setFont(u8g2_font_10x20_t_cyrillic);
@@ -189,7 +199,7 @@ void DashboardScreen::handleInput(InputEvent event) {
             if (_isSelectingShuttle) {
                 DataManager::getInstance().saveLocalShuttleNumber(_tempShuttleNum);
                 _isSelectingShuttle = false;
-                DataManager::getInstance().sendCommand(SP::CMD_PING); // Inform new shuttle
+                // No PING needed, heartbeat handles it
                 setDirty();
             }
             break;
@@ -233,6 +243,11 @@ void DashboardScreen::handleInput(InputEvent event) {
 }
 
 void DashboardScreen::tick() {
+    _statusBar.tick();
+    if (_statusBar.needsRedraw()) {
+        setDirty();
+        _statusBar.clearDirty();
+    }
     DataManager::getInstance().setPollContext(DataManager::PollContext::MAIN_DASHBOARD);
 
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {

@@ -19,6 +19,9 @@ public:
         return false;
     }
 
+    // Called periodically to handle internal state/animations
+    virtual void tick() {}
+
     uint8_t getWidth() const { return _width; }
     uint8_t getHeight() const { return _height; }
 

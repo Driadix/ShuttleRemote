@@ -1,14 +1,25 @@
 #include "PowerController.h"
+#include "DataManager.h"
 #include <driver/rtc_io.h>
 
 unsigned long PowerController::_lastActivityTime = 0;
 unsigned long PowerController::_sleepThreshold = 25000; // 25s default
 bool PowerController::_preventSleep = false;
 
+int PowerController::_batteryPin = -1;
+int PowerController::_chargePin = -1;
+unsigned long PowerController::_lastBatteryCheck = 0;
+int PowerController::_chargerCount = 0;
+int PowerController::_battIndicator = 0;
+
 #define PIN_RFOUT0 15
 #define BUTTON_PIN_BITMASK 0x308005000
 
-void PowerController::init() {
+void PowerController::init(int batteryPin, int chargePin) {
+    _batteryPin = batteryPin;
+    _chargePin = chargePin;
+    pinMode(_chargePin, INPUT);
+
     _lastActivityTime = millis();
     
     // Release holds from previous sleep state
@@ -55,6 +66,30 @@ void PowerController::init() {
 }
 
 void PowerController::tick() {
+    // Battery Monitor
+    if (_batteryPin != -1 && millis() - _lastBatteryCheck > 500) {
+        _lastBatteryCheck = millis();
+
+        bool isCharging = false;
+        if (!digitalRead(_chargePin)) {
+            _chargerCount = 8;
+        } else {
+            _chargerCount--;
+            if (_chargerCount <= 0) _chargerCount = 0;
+        }
+
+        if (_chargerCount > 0) {
+            isCharging = true;
+        }
+
+        int raw = analogRead(_batteryPin);
+        int volt = map(raw, 740, 1100, 0, 100);
+        if (volt < 0) volt = 0;
+        else if (volt > 100) volt = 100;
+
+        DataManager::getInstance().setRemoteBatteryLevel(volt, isCharging);
+    }
+
     if (_preventSleep) {
         _lastActivityTime = millis();
         return;

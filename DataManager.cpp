@@ -19,6 +19,7 @@ DataManager::DataManager()
       _manualHeartbeatTimer(0),
       _currentPollInterval(1500),
       _remoteBatteryLevel(0),
+      _isCharging(false),
       _radioChannel(0)
 {
 }
@@ -33,6 +34,21 @@ void DataManager::tick() {
 
     _commLink.tick();
     updatePolling();
+
+    // Connection Watchdog
+    uint32_t now = millis();
+    bool currentlyConnected = _model.isConnected();
+    if (currentlyConnected) {
+        if (now - _model.getLastRxTime() > 2000) {
+            _model.setConnected(false);
+            EventBus::publish(SystemEvent::CONNECTION_LOST);
+        }
+    } else {
+        if (_model.getLastRxTime() > 0 && (now - _model.getLastRxTime() < 2000)) {
+            _model.setConnected(true);
+            EventBus::publish(SystemEvent::CONNECTION_RESTORED);
+        }
+    }
 }
 
 void DataManager::updatePolling() {
@@ -140,8 +156,12 @@ void DataManager::setManualMoveMode(bool isMoving) {
     }
 }
 
-void DataManager::setRemoteBatteryLevel(int level) {
-    _remoteBatteryLevel = level;
+void DataManager::setRemoteBatteryLevel(int level, bool isCharging) {
+    if (_remoteBatteryLevel != level || _isCharging != isCharging) {
+        _remoteBatteryLevel = level;
+        _isCharging = isCharging;
+        EventBus::publish(SystemEvent::LOCAL_BATT_UPDATED);
+    }
 }
 
 void DataManager::setRadioChannel(uint8_t ch) {
@@ -154,6 +174,18 @@ int DataManager::getRemoteBatteryLevel() const {
 
 uint8_t DataManager::getRadioChannel() const {
     return _radioChannel;
+}
+
+bool DataManager::isConnected() const {
+    return _model.isConnected();
+}
+
+bool DataManager::isWaitingForAck() const {
+    return _commLink.isWaitingForAck();
+}
+
+bool DataManager::isCharging() const {
+    return _isCharging;
 }
 
 bool DataManager::isQueueFull() const {
