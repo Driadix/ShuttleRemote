@@ -114,13 +114,6 @@ void OptionsScreen::handleInput(InputEvent event) {
                 ScreenManager::getInstance().push(&changeShuttleNumScreen);
                 break;
             case 5: // Engineering Menu
-                // pinEntryScreen.setTarget(&engineeringMenuScreen); // Assume these exist externally
-                // ScreenManager::getInstance().push(&pinEntryScreen);
-                // Since I cannot see UI_Graph.h externalities easily, I'll copy the logic from original file.
-                // Original:
-                // pinEntryScreen.setTarget(&engineeringMenuScreen);
-                // ScreenManager::getInstance().push(&pinEntryScreen);
-                // I need externs. They are in UI_Graph.h which I included.
                 pinEntryScreen.setTarget(&engineeringMenuScreen);
                 ScreenManager::getInstance().push(&pinEntryScreen);
                 break;

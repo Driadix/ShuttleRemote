@@ -15,8 +15,6 @@
 
 // --- Global UI State ---
 Preferences prefs;
-// bool isDisplayDirty = true; // Managed by ScreenManager/Screens now
-// uint32_t lastDisplayUpdate = 0;
 bool isOtaUpdating = false;
 
 // Note: isManualMoving is now managed by DataManager and DashboardScreen
@@ -24,10 +22,7 @@ bool isOtaUpdating = false;
 #pragma region переменные
 HardwareSerial &hSerial = Serial2;
 
-int addr0 = 0;
-
 // Config Array Replaced by Local Generation in initRadio()
-uint8_t logWrite = 0;
 U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 2, /* dc=*/ 19, /* reset=*/ 4);
 #define R_VERSION   " v1.0 2023"
 
@@ -36,17 +31,11 @@ uint8_t pass_menu = 1;
 
 int8_t shuttleNumber = 1;
 
-bool isUpdateStarted = false;
-
 bool displayActive = true;
 
 const int rfout0 = 15;  // D3
 const int Battery_Pin = 36;
 const int Charge_Pin = 39;
-
-const int LedRF_Pin = 21;
-const int LedWiFi_Pin = 22;
-String Serial2in = "";
 
 int8_t chargercount = 0;
 
@@ -138,11 +127,6 @@ void setup()
 
 void loop()
 {
-  if (isUpdateStarted)
-  {
-    ElegantOTA.loop();
-  }
-  
   // --- DataManager Tick ---
   DataManager::getInstance().tick();
 

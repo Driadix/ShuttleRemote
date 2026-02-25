@@ -24,9 +24,6 @@ bool ScrollingListWidget::handleInput(InputEvent event) {
     // Logic: Up/Down moves cursor. Wraps around.
     // If wrapping, adjust topIndex.
 
-    // ... (Same logic as before, just ensuring it sets dirty)
-    // Actually I should re-implement the logic or copy it.
-    // The previous file had:
     if (event == InputEvent::UP_PRESS) {
         if (_cursorPos > 0) {
             _cursorPos--;

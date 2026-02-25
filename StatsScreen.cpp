@@ -26,17 +26,19 @@ void StatsScreen::draw(U8G2& display) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
-    display.setCursor(0, 25);
-    display.print("Dist: " + String(stats.totalDist / 1000) + "m");
+    char buf[32];
 
-    display.setCursor(0, 37);
-    display.print("Cycles: " + String(stats.loadCounter));
+    snprintf(buf, sizeof(buf), "Dist:   %-6lu m", stats.totalDist / 1000);
+    display.drawStr(0, 25, buf);
 
-    display.setCursor(0, 49);
-    display.print("Crashes: " + String(stats.crashCount));
+    snprintf(buf, sizeof(buf), "Cycles: %-6lu", stats.loadCounter);
+    display.drawStr(0, 37, buf);
 
-    display.setCursor(0, 61);
-    display.print("Uptime: " + String(stats.totalUptimeMinutes) + "m");
+    snprintf(buf, sizeof(buf), "Crashes: %-5u", stats.crashCount);
+    display.drawStr(0, 49, buf);
+
+    snprintf(buf, sizeof(buf), "Uptime:  %-6lu m", stats.totalUptimeMinutes);
+    display.drawStr(0, 61, buf);
 }
 
 void StatsScreen::handleInput(InputEvent event) {

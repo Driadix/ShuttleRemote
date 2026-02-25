@@ -1,7 +1,7 @@
 #include "DebugInfoScreen.h"
 #include "ScreenManager.h"
 
-DebugInfoScreen::DebugInfoScreen() : _pageIndex(0) {}
+DebugInfoScreen::DebugInfoScreen() : _pageIndex(0), _lastAnimTick(0), _animState(0) {}
 
 void DebugInfoScreen::onEnter() {
     _pageIndex = 0;
@@ -28,40 +28,44 @@ void DebugInfoScreen::draw(U8G2& display) {
     display.setDrawColor(1);
 
     if (_pageIndex == 0) {
-        display.setCursor(2, 22);
-        display.print("Forw. chnl dist: " + String(sensors.distanceF));
-        display.setCursor(2, 32);
-        display.print("Rvrs. chnl dist: " + String(sensors.distanceR));
-        display.setCursor(2, 42);
-        display.print("Forw. plt dist:  " + String(sensors.distancePltF));
-        display.setCursor(2, 52);
-        display.print("Rvrs. plt dist:  " + String(sensors.distancePltR));
-        display.setCursor(2, 62);
-        display.print("Encoder ang: " + String(sensors.angle));
+        char buf[32];
+        snprintf(buf, sizeof(buf), "Forw. chnl dist: %u", sensors.distanceF);
+        display.drawStr(2, 22, buf);
+
+        snprintf(buf, sizeof(buf), "Rvrs. chnl dist: %u", sensors.distanceR);
+        display.drawStr(2, 32, buf);
+
+        snprintf(buf, sizeof(buf), "Forw. plt dist:  %u", sensors.distancePltF);
+        display.drawStr(2, 42, buf);
+
+        snprintf(buf, sizeof(buf), "Rvrs. plt dist:  %u", sensors.distancePltR);
+        display.drawStr(2, 52, buf);
+
+        snprintf(buf, sizeof(buf), "Encoder ang: %u", sensors.angle);
+        display.drawStr(2, 62, buf);
 
         // Simple activity indicator
-        static uint8_t count = 0;
-        count++;
-        if (count > 3) count = 0;
-        // display.drawGlyph(120, 20, 0x25f7 - count); // Requires symbol font
+        // display.drawGlyph(120, 20, 0x25f7 - _animState); // Requires symbol font
         display.setCursor(120, 20);
-        if (count == 0) display.print("-");
-        else if (count == 1) display.print("\\");
-        else if (count == 2) display.print("|");
+        if (_animState == 0) display.print("-");
+        else if (_animState == 1) display.print("\\");
+        else if (_animState == 2) display.print("|");
         else display.print("/");
     } else {
         display.setFont(u8g2_font_6x13_t_cyrillic);
         for(int i=0; i<8; i++) {
             bool state = (sensors.hardwareFlags & (1 << i)) != 0;
-            display.setCursor(2, 20 + i*10);
-            if (i == 0) display.print(String(state) + " DATCHIK_F1");
-            else display.print(String(state) + " SENSOR_" + String(i));
+            char buf[32];
+            if (i == 0) snprintf(buf, sizeof(buf), "%d DATCHIK_F1", state);
+            else snprintf(buf, sizeof(buf), "%d SENSOR_%d", state, i);
+            display.drawStr(2, 20 + i*10, buf);
         }
     }
 
     // Page indicator
-    display.setCursor(100, 60);
-    display.print(String(_pageIndex + 1) + "/2");
+    char pageBuf[8];
+    snprintf(pageBuf, sizeof(pageBuf), "%d/2", _pageIndex + 1);
+    display.drawStr(100, 60, pageBuf);
 }
 
 void DebugInfoScreen::handleInput(InputEvent event) {
@@ -84,4 +88,9 @@ void DebugInfoScreen::handleInput(InputEvent event) {
 
 void DebugInfoScreen::tick() {
     DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
+    if (millis() - _lastAnimTick > 250) {
+        _lastAnimTick = millis();
+        _animState = (_animState + 1) % 4;
+        setDirty();
+    }
 }
