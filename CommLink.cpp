@@ -143,7 +143,7 @@ void CommLink::sendBufferData(uint16_t offset, uint8_t len) {
     }
 }
 
-bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries) {
+bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries, uint16_t ackTimeoutMs) {
     // 1. Check Job Queue Space
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
     if (nextTail == _jobHead) {
@@ -202,6 +202,7 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
     job->seqNum = header.seq;
     job->retryCount = 0;
     job->maxRetries = maxRetries;
+    job->ackTimeoutMs = ackTimeoutMs;
     job->cancelled = false;
 
     _jobTail = nextTail;
@@ -241,7 +242,7 @@ void CommLink::processTxQueue() {
     } else if (_txState == TxState::WAITING_ACK) {
         if (_jobHead != _jobTail) {
             TxJob* job = &_jobQueue[_jobHead];
-            if (millis() - job->lastTxTime > 500) {
+            if (millis() - job->lastTxTime > job->ackTimeoutMs) {
                 if (job->retryCount < job->maxRetries) {
                     LOG_W("COMM", "ACK timeout Seq %d. Retry %d/%d", job->seqNum, job->retryCount + 1, job->maxRetries);
                     if (_transport->availableForWrite() >= job->length) {
@@ -280,26 +281,26 @@ void CommLink::processTxQueue() {
 
 // --- Public Sending API ---
 
-bool CommLink::sendCommand(SP::CommandPacket packet) {
-    return enqueuePacket(SP::MSG_COMMAND, &packet, sizeof(packet));
+bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_t ackTimeoutMs) {
+    return enqueuePacket(SP::MSG_COMMAND, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
 }
 
 bool CommLink::sendRequest(uint8_t msgID, uint8_t maxRetries) {
-    return enqueuePacket(msgID, nullptr, 0, maxRetries);
+    return enqueuePacket(msgID, nullptr, 0, maxRetries); // Uses default ackTimeoutMs = 500
 }
 
 bool CommLink::sendConfigSet(uint8_t paramID, int32_t value) {
     SP::ConfigPacket cfg;
     cfg.paramID = paramID;
     cfg.value = value;
-    return enqueuePacket(SP::MSG_CONFIG_SET, &cfg, sizeof(cfg));
+    return enqueuePacket(SP::MSG_CONFIG_SET, &cfg, sizeof(cfg)); // Uses default ackTimeoutMs = 500
 }
 
 bool CommLink::sendConfigGet(uint8_t paramID) {
     SP::ConfigPacket cfg;
     cfg.paramID = paramID;
     cfg.value = 0;
-    return enqueuePacket(SP::MSG_CONFIG_GET, &cfg, sizeof(cfg));
+    return enqueuePacket(SP::MSG_CONFIG_GET, &cfg, sizeof(cfg)); // Uses default ackTimeoutMs = 500
 }
 
 bool CommLink::isQueueFull() const {
