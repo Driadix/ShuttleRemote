@@ -2,13 +2,13 @@
 #include <AsyncTCP.h>
 #include <Preferences.h>
 #include <ESPAsyncWebServer.h>
-#include <Keypad.h>
 #include <SPI.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
 #include <driver/rtc_io.h>
-//#include <esp_deep_sleep.h>
-#include "sleep_m.h"
+#include "InputEvents.h"
+#include "InputManager.h"
+#include "PowerController.h"
 
 namespace SP {
 #include "ShuttleProtocol.h"
@@ -71,15 +71,6 @@ int temp_pin_code = 0;
 int8_t temp_pin[4] = {
   0,
 };
-
-#define BUTTON_PIN_BITMASK 0x308005000  // GPIOs 12, 14, 27, 33, 32
-
-#ifdef mk
-#else
-const byte ROWS = 5;  //строки
-const byte COLS = 3;  //столбцы
-// карта клавиатуры
-char keys[ROWS][COLS] = { { '1', '2', 'A' }, { '3', '4', 'B' }, { '5', '6', 'C' }, { '7', '8', 'D' }, { '9', '0', 'E' } };
 
 enum Page
 {
@@ -151,14 +142,6 @@ enum Command
   CMD_SET_LENGTH = 48
 } command;
 
-// к каким выводам подключено
-byte rowPins[ROWS] = { 32, 33, 27, 14, 12 };
-byte colPins[COLS] = { 25, 26, 13 };
-
-#endif
-//объект клавиатуры
-Keypad kpd(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
-
 int8_t cursorPos = 1;  // default cursor position
 int8_t shuttleNumber = 1;
 int8_t shuttleTempNum = 1;
@@ -204,8 +187,6 @@ bool pallet_800_only = 0;
 String calibret = "Нет";
 int dist = 0;
 char currentKey;
-// ESP.wdtFeed();
-// byte mac[] = { 0x28, 0x63, 0x36, 0xEF, 0x47, 0x8B };
 
 // byte Buffer[10];
 
@@ -247,8 +228,8 @@ int uctimer = warntimer;
 boolean buttonActive = false;
 boolean longPressActive = false;
 unsigned long buttonTimer = 0;
-unsigned long displayOffTimer = 0;
-unsigned long displayOffInterval = 25000;
+// unsigned long displayOffTimer = 0; // Removed
+// unsigned long displayOffInterval = 25000; // Removed
 unsigned long longPressTime = 1000;
 unsigned long mpingtime = 0;
 unsigned long checkA0time = 0;
@@ -267,8 +248,6 @@ Page pageAfterPin = MAIN;
 #pragma region Объявление функций...
 void cmdSend(uint8_t numcmd);
 int getVoltage();
-void keypadEvent(KeypadEvent key);
-void SetSleep();
 void BatteryLevel(uint8_t percent);
 void MenuOut();
 void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
@@ -335,38 +314,11 @@ void setup()
   tempChannelNumber = channelNumber;
 
   delay(50);
-  kpd.addEventListener(keypadEvent);
-  displayOffInterval = 25000;
-  rtc_gpio_init((gpio_num_t)13);
-  rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_OUTPUT_ONLY);
-  gpio_hold_dis((gpio_num_t)13);
-  rtc_gpio_init((gpio_num_t)25);
-  rtc_gpio_set_direction((gpio_num_t)25, RTC_GPIO_MODE_OUTPUT_ONLY);
-  gpio_hold_dis((gpio_num_t)25);
-  rtc_gpio_init((gpio_num_t)26);
-  rtc_gpio_set_direction((gpio_num_t)26, RTC_GPIO_MODE_OUTPUT_ONLY);
-  gpio_hold_dis((gpio_num_t)26);
-  rtc_gpio_init((gpio_num_t)12);
-  rtc_gpio_set_direction((gpio_num_t)12, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)12, GPIO_PULLDOWN_ONLY);
-  gpio_hold_dis((gpio_num_t)12);
-  rtc_gpio_init((gpio_num_t)14);
-  rtc_gpio_set_direction((gpio_num_t)14, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)14, GPIO_PULLDOWN_ONLY);
-  gpio_hold_dis((gpio_num_t)14);
-  rtc_gpio_init((gpio_num_t)27);
-  rtc_gpio_set_direction((gpio_num_t)27, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)27, GPIO_PULLDOWN_ONLY);
-  gpio_hold_dis((gpio_num_t)27);
-  rtc_gpio_init((gpio_num_t)32);
-  rtc_gpio_set_direction((gpio_num_t)32, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)32, GPIO_PULLDOWN_ONLY);
-  gpio_hold_dis((gpio_num_t)32);
-  rtc_gpio_init((gpio_num_t)33);
-  rtc_gpio_set_direction((gpio_num_t)33, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)33, GPIO_PULLDOWN_ONLY);
-  gpio_hold_dis((gpio_num_t)33);
-  esp_sleep_enable_ext1_wakeup(BUTTON_PIN_BITMASK, ESP_EXT1_WAKEUP_ANY_HIGH);
+  
+  // Initialize new Managers
+  InputManager::init();
+  PowerController::init();
+  
   initRadio();
 
   AsyncElegantOTA.onStarted([]() { isOtaUpdating = true; });
@@ -394,8 +346,21 @@ void loop()
   {
     AsyncElegantOTA.loop();
   }
+  
   handleRx();
   processTxQueue();
+  
+  // Power Management Tick
+  PowerController::tick();
+  
+  // Input Processing
+  InputManager::update();
+  InputEvent evt = InputManager::getNextEvent();
+  if (evt != InputEvent::NONE) {
+      Serial.print("Event: ");
+      Serial.println((int)evt);
+      PowerController::feedWatchdog();
+  }
 
   // --- Context-Aware Polling Engine ---
   if (!isManualMoving && !isOtaUpdating)
@@ -438,36 +403,15 @@ void loop()
 
   String linkMode = " ";
   shuttnumst = shuttnum[shuttleNumber - 1];
-  if (millis() - displayOffTimer > displayOffInterval)
-  {
-    if (displayActive)
-    {
-      if (txState == TxState::IDLE && txHead == txTail) {
-        u8g2.clearBuffer();  //очистить буфер
-        u8g2.drawBitmap(0, 0, 16, 64, sleep_mode);
-        u8g2.sendBuffer();  //рисовать содержимое буфера
-        delay(1000);
-        u8g2.setPowerSave(1);
-        displayActive = false;
-        dispactivate = 0;
-        page = MAIN;
-        SetSleep();
-      } else {
-        displayOffTimer = millis();
-      }
-    }
-  }
-  else
-  {
-    gpio_hold_dis((gpio_num_t)rfout0);
-    digitalWrite(rfout0, HIGH);
-  }
-  char key = kpd.getKey();
-  longPressActive = false;
+  
+  // NOTE: Display sleep logic removed, handled by PowerController now
+  
+  // char key = kpd.getKey(); // Removed
+  longPressActive = false; // Reset/unused
 
   if (buttonActive)
   {
-    displayOffTimer = millis();
+    // displayOffTimer = millis(); // Removed
     if ((millis() - buttonTimer > longPressTime) && (longPressActive == false)) longPressActive = true;
     if (isManualMoving)
     {
@@ -2218,6 +2162,54 @@ void keypadEvent(KeypadEvent key)
   }
 }
 
+void BatteryLevel(uint8_t percent)
+{
+  uint8_t xsize = 0;
+  if (percent < prevpercent || percent > prevpercent + 5)
+  {
+    prevpercent = percent;
+  }
+  if (prevpercent > 95)
+    xsize = 14;
+  else if (prevpercent > 75)
+    xsize = 11;
+  else if (prevpercent > 50)
+    xsize = 8;
+  else if (prevpercent > 25)
+    xsize = 5;
+  else if (prevpercent > 7)
+    xsize = 2;
+  else
+    xsize = 0;
+  u8g2.drawFrame(107, 1, 18, 10);
+  u8g2.drawBox(125, 4, 2, 4);
+  if (xsize) u8g2.drawBox(109, 3, xsize, 6);
+  // u8g2.setCursor(100, 25);
+  // u8g2.print(String(percent));
+  // u8g2.print(String(analogRead(Battery_Pin)));
+  // if (digitalRead(Charge_Pin)) u8g2.print(" ON");
+  // else u8g2.print(" OFF");
+}
+void MenuOut()
+{
+  if (cursorPos < 6)
+    u8g2.drawBox(0, 6 + (cursorPos - 1) * 11, 128, 11);
+  else
+    u8g2.drawBox(0, 50, 128, 11);
+  for (uint8_t i = 1; i < 6; i++)
+  {
+    u8g2.setCursor(0, 5 + i * 11);
+    if (cursorPos == i || (cursorPos > 5 && i == 5))
+      u8g2.setDrawColor(0);
+    else
+      u8g2.setDrawColor(1);
+    if (cursorPos < 6)
+      u8g2.print(strmenu[i - 1]);
+    else
+      u8g2.print(strmenu[cursorPos + i - 6]);
+  }
+}
+
 bool queueCommand(SP::CommandPacket cmd, uint8_t targetID) {
   uint8_t nextTail = (txTail + 1) % TX_QUEUE_SIZE;
   if (nextTail != txHead) {
@@ -2405,96 +2397,6 @@ void handleRx() {
           break;
       }
     }
-  }
-}
-
-void SetSleep()
-{
-  rtc_gpio_init((gpio_num_t)13);
-  rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_OUTPUT_ONLY);
-  rtc_gpio_set_level((gpio_num_t)13, 1);
-  gpio_hold_en((gpio_num_t)13);
-  rtc_gpio_init((gpio_num_t)25);
-  rtc_gpio_set_direction((gpio_num_t)25, RTC_GPIO_MODE_OUTPUT_ONLY);
-  rtc_gpio_set_level((gpio_num_t)25, 1);
-  gpio_hold_en((gpio_num_t)25);
-  rtc_gpio_init((gpio_num_t)26);
-  rtc_gpio_set_direction((gpio_num_t)26, RTC_GPIO_MODE_OUTPUT_ONLY);
-  rtc_gpio_set_level((gpio_num_t)26, 1);
-  gpio_hold_en((gpio_num_t)26);
-
-  rtc_gpio_init((gpio_num_t)12);
-  rtc_gpio_set_direction((gpio_num_t)12, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)12, GPIO_PULLDOWN_ONLY);
-  gpio_hold_en((gpio_num_t)12);
-  rtc_gpio_init((gpio_num_t)14);
-  rtc_gpio_set_direction((gpio_num_t)14, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)14, GPIO_PULLDOWN_ONLY);
-  gpio_hold_en((gpio_num_t)14);
-  rtc_gpio_init((gpio_num_t)27);
-  rtc_gpio_set_direction((gpio_num_t)27, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)27, GPIO_PULLDOWN_ONLY);
-  gpio_hold_en((gpio_num_t)27);
-  rtc_gpio_init((gpio_num_t)32);
-  rtc_gpio_set_direction((gpio_num_t)32, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)32, GPIO_PULLDOWN_ONLY);
-  gpio_hold_en((gpio_num_t)32);
-  rtc_gpio_init((gpio_num_t)33);
-  rtc_gpio_set_direction((gpio_num_t)33, RTC_GPIO_MODE_INPUT_ONLY);
-  gpio_set_pull_mode((gpio_num_t)33, GPIO_PULLDOWN_ONLY);
-  gpio_hold_en((gpio_num_t)33);
-  digitalWrite(rfout0, LOW);
-  gpio_hold_en((gpio_num_t)rfout0);
-
-  // gpio_deep_sleep_hold_en();
-  delay(100);
-  esp_deep_sleep_start();
-}
-void BatteryLevel(uint8_t percent)
-{
-  uint8_t xsize = 0;
-  if (percent < prevpercent || percent > prevpercent + 5)
-  {
-    prevpercent = percent;
-  }
-  if (prevpercent > 95)
-    xsize = 14;
-  else if (prevpercent > 75)
-    xsize = 11;
-  else if (prevpercent > 50)
-    xsize = 8;
-  else if (prevpercent > 25)
-    xsize = 5;
-  else if (prevpercent > 7)
-    xsize = 2;
-  else
-    xsize = 0;
-  u8g2.drawFrame(107, 1, 18, 10);
-  u8g2.drawBox(125, 4, 2, 4);
-  if (xsize) u8g2.drawBox(109, 3, xsize, 6);
-  // u8g2.setCursor(100, 25);
-  // u8g2.print(String(percent));
-  // u8g2.print(String(analogRead(Battery_Pin)));
-  // if (digitalRead(Charge_Pin)) u8g2.print(" ON");
-  // else u8g2.print(" OFF");
-}
-void MenuOut()
-{
-  if (cursorPos < 6)
-    u8g2.drawBox(0, 6 + (cursorPos - 1) * 11, 128, 11);
-  else
-    u8g2.drawBox(0, 50, 128, 11);
-  for (uint8_t i = 1; i < 6; i++)
-  {
-    u8g2.setCursor(0, 5 + i * 11);
-    if (cursorPos == i || (cursorPos > 5 && i == 5))
-      u8g2.setDrawColor(0);
-    else
-      u8g2.setDrawColor(1);
-    if (cursorPos < 6)
-      u8g2.print(strmenu[i - 1]);
-    else
-      u8g2.print(strmenu[cursorPos + i - 6]);
   }
 }
 #pragma endregion
