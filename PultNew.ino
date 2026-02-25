@@ -19,7 +19,6 @@ bool isOtaUpdating = false;
 
 // Note: isManualMoving is now managed by DataManager and DashboardScreen
 
-#pragma region переменные
 HardwareSerial &hSerial = Serial2;
 
 // Config Array Replaced by Local Generation in initRadio()
@@ -44,10 +43,6 @@ int chargact = 0;
 uint8_t prevpercent = 100;
 
 unsigned long checkA0time = 0;
-
-#pragma endregion
-
-#pragma region setup
 
 void initRadio() {
   digitalWrite(rfout0, HIGH);
@@ -123,7 +118,6 @@ void setup()
       DataManager::getInstance().setOtaUpdating(false);
   });
 }
-#pragma endregion
 
 void loop()
 {
