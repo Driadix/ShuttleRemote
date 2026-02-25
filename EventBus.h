@@ -11,7 +11,10 @@ enum class SystemEvent {
     ERROR_OCCURRED,
     BATTERY_LOW,
     QUEUE_FULL,
-    QUEUE_OK
+    QUEUE_OK,
+    CONNECTION_LOST,
+    CONNECTION_RESTORED,
+    LOCAL_BATT_UPDATED
 };
 
 // Interface for listeners
