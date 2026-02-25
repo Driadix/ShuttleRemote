@@ -89,16 +89,30 @@ void DataManager::tick() {
 // --- Public API ---
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
-    if (!_model.isConnected() && (cmd != SP::MSG_REQ_HEARTBEAT || cmd != SP::MSG_REQ_SENSORS || cmd != SP::MSG_REQ_STATS)) {
+    bool isBackgroundPoll = (cmd == SP::MSG_REQ_HEARTBEAT || 
+                             cmd == SP::MSG_REQ_SENSORS || 
+                             cmd == SP::MSG_REQ_STATS);
+
+    if (!_model.isConnected() && !isBackgroundPoll) {
         LOG_W("DATA", "Safety Interlock: Command %s blocked. Shuttle disconnected.", DebugUtils::getMsgIdName(cmd));
         return false; 
+    }
+
+    if (!isBackgroundPoll) {
+        _commLink.clearPendingCommands();
+    } else {
+        if (_commLink.isWaitingForAck()) {
+            LOG_D("DATA", "Skipping poll %s: Radio is busy with user command.", DebugUtils::getMsgIdName(cmd));
+            return false;
+        }
     }
     
     LOG_D("DATA", "Dispatching command: MSG_COMMAND (Type: %d) to CommLink", (int)cmd);
 
-    // Preemption: clear previous user commands to enforce "Latest Intent Wins"
-    _commLink.clearPendingCommands();
-    _lastUserCommandType = cmd;
+
+    if (!isBackgroundPoll) {
+        _lastUserCommandType = cmd;
+    }
 
     // Industrial Latency Strategy
     uint8_t retries = 1;
@@ -106,6 +120,12 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
 
     switch (cmd) {
         // 3. Safety Overrides (Aggressive Spamming)
+        case SP::MSG_REQ_HEARTBEAT:
+        case SP::MSG_REQ_SENSORS:
+        case SP::MSG_REQ_STATS:
+            retries = 0;
+            timeout = 500;
+            break;
         case SP::CMD_STOP:
         case SP::CMD_STOP_MANUAL:
         case SP::CMD_EVACUATE_ON: // Assume evacuation is also critical
@@ -154,7 +174,7 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     packet.arg2 = arg2;
 
     bool sent = _commLink.sendCommand(packet, retries, timeout);
-    if (sent) {
+    if (sent && !isBackgroundPoll) {
         EventBus::publish(SystemEvent::CMD_DISPATCHED);
     }
     return sent;
