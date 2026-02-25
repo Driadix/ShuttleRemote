@@ -40,12 +40,27 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
         display.print("FIFO");
     }
 
-    // 3. Battery Icon (Top Right)
-    // Legacy used 107, 1.
-    // Ported Logic from BatteryLevel(uint8_t percent)
-    // We use telemetry.batteryCharge
-    uint8_t percent = telemetry.batteryCharge;
+    // 3. Battery Icon (Top Right) with Toggle (Remote vs Shuttle)
+    // Cycle every 3 seconds
+    bool showRemote = (millis() / 3000) % 2 == 0;
 
+    int percent;
+    char label;
+
+    if (showRemote) {
+        percent = DataManager::getInstance().getRemoteBatteryLevel();
+        label = 'P'; // Pult (Remote)
+    } else {
+        percent = DataManager::getInstance().getTelemetry().batteryCharge;
+        label = 'S'; // Shuttle
+    }
+
+    // Draw Label
+    char labelBuf[2] = {label, '\0'};
+    display.setCursor(x + 98, y + 10);
+    display.print(labelBuf);
+
+    // Draw Icon
     uint8_t width = 0;
     if (percent > 95) width = 14;
     else if (percent > 75) width = 11;
@@ -54,8 +69,6 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     else if (percent > 7) width = 2;
     else width = 0;
 
-    // Legacy: drawFrame(107, 1, 18, 10);
-    // Relative to x, y.
     display.drawFrame(x + 107, y + 1, 18, 10);
     display.drawBox(x + 125, y + 4, 2, 4); // Tip
 

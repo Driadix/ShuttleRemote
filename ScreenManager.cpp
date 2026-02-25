@@ -14,14 +14,31 @@ ScreenManager::ScreenManager() : _topIndex(-1) {
 }
 
 void ScreenManager::push(Screen* s) {
-    if (_topIndex < MAX_STACK_SIZE - 1 && s != nullptr) {
+    if (s == nullptr) return;
+
+    if (_topIndex < MAX_STACK_SIZE - 1) {
         _topIndex++;
         _stack[_topIndex] = s;
         s->onEnter();
         s->setDirty(); // Ensure it draws
     } else {
-        // Stack overflow or null pointer
-        // In a real system we might log this or handle it
+        // Stack overflow: Pop oldest screen (except root at 0)
+        // Shift 1..MAX-1 down to create space at top
+
+        if (_stack[1] != nullptr) {
+            _stack[1]->onExit();
+        }
+
+        for (int i = 1; i < MAX_STACK_SIZE - 1; i++) {
+            _stack[i] = _stack[i+1];
+        }
+
+        // Push to top slot
+        _stack[MAX_STACK_SIZE - 1] = s;
+        // _topIndex remains at MAX
+
+        s->onEnter();
+        s->setDirty();
     }
 }
 

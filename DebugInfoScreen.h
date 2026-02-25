@@ -2,8 +2,9 @@
 #include "Screen.h"
 #include "StatusBarWidget.h"
 #include "DataManager.h"
+#include "EventBus.h"
 
-class DebugInfoScreen : public Screen {
+class DebugInfoScreen : public Screen, public EventListener {
 public:
     DebugInfoScreen();
 
@@ -11,6 +12,8 @@ public:
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;

@@ -2,8 +2,9 @@
 #include "Screen.h"
 #include "StatusBarWidget.h"
 #include "DataManager.h"
+#include "EventBus.h"
 
-class StatsScreen : public Screen {
+class StatsScreen : public Screen, public EventListener {
 public:
     StatsScreen();
 
@@ -12,6 +13,8 @@ public:
     virtual void tick() override;
 
     virtual void onEnter() override; // To trigger poll context
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;

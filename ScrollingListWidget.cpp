@@ -1,9 +1,9 @@
 #include "ScrollingListWidget.h"
 #include <Arduino.h> // For min/max if needed
 
-ScrollingListWidget::ScrollingListWidget(const char* const* items, uint8_t itemCount, uint8_t visibleItems)
+ScrollingListWidget::ScrollingListWidget(ItemTextProvider provider, uint8_t itemCount, uint8_t visibleItems)
     : Widget(128, visibleItems * 14),
-      _items(items), _itemCount(itemCount), _visibleItems(visibleItems),
+      _provider(provider), _itemCount(itemCount), _visibleItems(visibleItems),
       _cursorPos(0), _topIndex(0) {
 }
 
@@ -70,10 +70,14 @@ void ScrollingListWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     const uint8_t lineHeight = 14;
 
+    char buffer[32];
+
     // Draw visible items
     for (uint8_t i = 0; i < _visibleItems; i++) {
         uint8_t realIndex = _topIndex + i;
         if (realIndex >= _itemCount) break;
+
+        _provider(realIndex, buffer);
 
         uint8_t boxY = y + (i * lineHeight);
         // boxY relative to screen? Yes, x, y are screen coords.
@@ -87,13 +91,13 @@ void ScrollingListWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
             display.setDrawColor(0); // Invert text color
 
             display.setCursor(x + 2, textY);
-            display.print(_items[realIndex]);
+            display.print(buffer);
 
             display.setDrawColor(1); // Restore
         } else {
             display.setDrawColor(1); // Normal text color
             display.setCursor(x + 2, textY);
-            display.print(_items[realIndex]);
+            display.print(buffer);
         }
     }
 }

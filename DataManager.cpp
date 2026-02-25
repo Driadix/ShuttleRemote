@@ -6,10 +6,7 @@ DataManager& DataManager::getInstance() {
 }
 
 DataManager::DataManager()
-    : _transport(nullptr),
-      _commLink(nullptr),
-      _model(new TelemetryModel()),
-      _isOtaUpdating(false),
+    : _isOtaUpdating(false),
       _isManualMoving(false),
       _pollContext(PollContext::NORMAL),
       _lastPollTime(0),
@@ -17,35 +14,27 @@ DataManager::DataManager()
       _lastStatsPollTime(0),
       _manualHeartbeatTimer(0),
       _currentPollInterval(1500),
-      _internalListener(nullptr),
-      _telemetryDirty(false),
-      _sensorsDirty(false),
-      _statsDirty(false),
-      _configDirty(false)
+      _remoteBatteryLevel(0),
+      _radioChannel(0),
+      _transport(nullptr),
+      _model(),
+      _commLink(&_transport, &_model)
 {
 }
 
 void DataManager::init(HardwareSerial* serial, uint8_t shuttleNum) {
-    if (_transport) return; // Already initialized
-
-    _model->setShuttleNumber(shuttleNum);
-    _transport = new UartTransport(serial);
-    _commLink = new CommLink(_transport, _model);
-
-    // Setup listener for legacy dirty flags
-    _internalListener = new DataManagerListener(this);
-    EventBus::subscribe(_internalListener);
+    _transport.setSerial(serial);
+    _model.setShuttleNumber(shuttleNum);
 }
 
 void DataManager::tick() {
     if (_isOtaUpdating) return;
 
-    if (_commLink) _commLink->tick();
+    _commLink.tick();
     updatePolling();
 }
 
 void DataManager::updatePolling() {
-    if (!_commLink) return;
 
     uint32_t now = millis();
 
@@ -59,7 +48,7 @@ void DataManager::updatePolling() {
     if (_isManualMoving) {
         // Manual Move Heartbeat Logic (Every 200ms)
         if (now - _manualHeartbeatTimer >= 200) {
-            if (_commLink->sendRequest(SP::MSG_REQ_HEARTBEAT)) {
+            if (_commLink.sendRequest(SP::MSG_REQ_HEARTBEAT)) {
                  _manualHeartbeatTimer = now;
             }
         }
@@ -68,7 +57,7 @@ void DataManager::updatePolling() {
 
         // 1. Heartbeat
         if (now - _lastPollTime >= _currentPollInterval) {
-            if (_commLink->sendRequest(SP::MSG_REQ_HEARTBEAT)) {
+            if (_commLink.sendRequest(SP::MSG_REQ_HEARTBEAT)) {
                 _lastPollTime = now;
             }
         }
@@ -76,7 +65,7 @@ void DataManager::updatePolling() {
         // 2. Sensors (if in Debug Context)
         if (_pollContext == PollContext::DEBUG_SENSORS) {
             if (now - _lastSensorPollTime >= 300) {
-                if (_commLink->sendRequest(SP::MSG_REQ_SENSORS)) {
+                if (_commLink.sendRequest(SP::MSG_REQ_SENSORS)) {
                     _lastSensorPollTime = now;
                 }
             }
@@ -85,7 +74,7 @@ void DataManager::updatePolling() {
         // 3. Stats (if in Stats Context)
         if (_pollContext == PollContext::STATS_VIEW) {
             if (now - _lastStatsPollTime >= 2000) {
-                if (_commLink->sendRequest(SP::MSG_REQ_STATS)) {
+                if (_commLink.sendRequest(SP::MSG_REQ_STATS)) {
                     _lastStatsPollTime = now;
                 }
             }
@@ -96,52 +85,28 @@ void DataManager::updatePolling() {
 // --- Public API ---
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
-    if (!_commLink) return false;
     SP::CommandPacket packet;
     packet.cmdType = (uint8_t)cmd;
     packet.arg1 = arg1;
     packet.arg2 = arg2;
-    return _commLink->sendCommand(packet);
+    return _commLink.sendCommand(packet);
 }
 
 bool DataManager::requestConfig(SP::ConfigParamID paramID) {
-    if (!_commLink) return false;
-    return _commLink->sendConfigGet((uint8_t)paramID);
+    return _commLink.sendConfigGet((uint8_t)paramID);
 }
 
 bool DataManager::setConfig(SP::ConfigParamID paramID, int32_t value) {
-    if (!_commLink) return false;
-    return _commLink->sendConfigSet((uint8_t)paramID, value);
+    return _commLink.sendConfigSet((uint8_t)paramID, value);
 }
 
 // --- Getters ---
 
-const SP::TelemetryPacket& DataManager::getTelemetry() const { return _model->getTelemetry(); }
-const SP::SensorPacket& DataManager::getSensors() const { return _model->getSensors(); }
-const SP::StatsPacket& DataManager::getStats() const { return _model->getStats(); }
-int32_t DataManager::getConfig(uint8_t index) const { return _model->getConfig(index); }
-uint8_t DataManager::getShuttleNumber() const { return _model->getShuttleNumber(); }
-
-bool DataManager::consumeTelemetryDirtyFlag() {
-    bool dirty = _telemetryDirty;
-    _telemetryDirty = false;
-    return dirty;
-}
-bool DataManager::consumeSensorsDirtyFlag() {
-    bool dirty = _sensorsDirty;
-    _sensorsDirty = false;
-    return dirty;
-}
-bool DataManager::consumeStatsDirtyFlag() {
-    bool dirty = _statsDirty;
-    _statsDirty = false;
-    return dirty;
-}
-bool DataManager::consumeConfigDirtyFlag() {
-    bool dirty = _configDirty;
-    _configDirty = false;
-    return dirty;
-}
+const SP::TelemetryPacket& DataManager::getTelemetry() const { return _model.getTelemetry(); }
+const SP::SensorPacket& DataManager::getSensors() const { return _model.getSensors(); }
+const SP::StatsPacket& DataManager::getStats() const { return _model.getStats(); }
+int32_t DataManager::getConfig(uint8_t index) const { return _model.getConfig(index); }
+uint8_t DataManager::getShuttleNumber() const { return _model.getShuttleNumber(); }
 
 // --- Setters ---
 
@@ -150,7 +115,7 @@ void DataManager::setPollContext(PollContext ctx) {
 }
 
 void DataManager::setShuttleNumber(uint8_t id) {
-    _model->setShuttleNumber(id);
+    _model.setShuttleNumber(id);
 }
 
 void DataManager::setOtaUpdating(bool isUpdating) {
@@ -166,7 +131,22 @@ void DataManager::setManualMoveMode(bool isMoving) {
     }
 }
 
+void DataManager::setRemoteBatteryLevel(int level) {
+    _remoteBatteryLevel = level;
+}
+
+void DataManager::setRadioChannel(uint8_t ch) {
+    _radioChannel = ch;
+}
+
+int DataManager::getRemoteBatteryLevel() const {
+    return _remoteBatteryLevel;
+}
+
+uint8_t DataManager::getRadioChannel() const {
+    return _radioChannel;
+}
+
 bool DataManager::isQueueFull() const {
-    if (!_commLink) return false;
-    return _commLink->isQueueFull();
+    return _commLink.isQueueFull();
 }

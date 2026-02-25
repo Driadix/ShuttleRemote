@@ -5,19 +5,33 @@
 
 // --- MovementScreen ---
 
-const char* MovementScreen::_movItems[3] = {
-    "Movement >>",
-    "Movement <<",
-    "Back"
-};
-
 MovementScreen::MovementScreen()
     : _statusBar(),
-      _menuList(_movItems, 3, 4)
+      _menuList(MovementScreen::provideMenuItem, 3, 4)
 {
 }
 
+void MovementScreen::provideMenuItem(uint8_t index, char* buffer) {
+    switch(index) {
+        case 0: strcpy(buffer, "Movement >>"); break;
+        case 1: strcpy(buffer, "Movement <<"); break;
+        case 2: strcpy(buffer, "Back"); break;
+        default: buffer[0] = '\0'; break;
+    }
+}
+
 void MovementScreen::onEnter() {
+    EventBus::subscribe(this);
+}
+
+void MovementScreen::onExit() {
+    EventBus::unsubscribe(this);
+}
+
+void MovementScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::TELEMETRY_UPDATED) {
+        setDirty();
+    }
 }
 
 void MovementScreen::draw(U8G2& display) {
@@ -55,17 +69,10 @@ void MovementScreen::handleInput(InputEvent event) {
 }
 
 void MovementScreen::tick() {
-    if (DataManager::getInstance().consumeTelemetryDirtyFlag()) {
-        setDirty();
-    }
 }
 
 
 // --- MovementAxisScreen ---
-
-const char* MovementAxisScreen::_axisItems[9] = {
-    "10 cm", "20 cm", "30 cm", "50 cm", "100 cm", "200 cm", "300 cm", "500 cm", "Back"
-};
 
 const int32_t MovementAxisScreen::_distances[8] = {
     100, 200, 300, 500, 1000, 2000, 3000, 5000 // millimeters
@@ -73,9 +80,17 @@ const int32_t MovementAxisScreen::_distances[8] = {
 
 MovementAxisScreen::MovementAxisScreen()
     : _statusBar(),
-      _menuList(_axisItems, 9, 4),
+      _menuList(MovementAxisScreen::provideMenuItem, 9, 4),
       _isForward(true)
 {
+}
+
+void MovementAxisScreen::provideMenuItem(uint8_t index, char* buffer) {
+    if (index < 8) {
+        snprintf(buffer, 32, "%ld cm", (long)_distances[index] / 10);
+    } else {
+        strcpy(buffer, "Back");
+    }
 }
 
 void MovementAxisScreen::setDirection(bool forward) {
@@ -83,6 +98,17 @@ void MovementAxisScreen::setDirection(bool forward) {
 }
 
 void MovementAxisScreen::onEnter() {
+    EventBus::subscribe(this);
+}
+
+void MovementAxisScreen::onExit() {
+    EventBus::unsubscribe(this);
+}
+
+void MovementAxisScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::TELEMETRY_UPDATED) {
+        setDirty();
+    }
 }
 
 void MovementAxisScreen::draw(U8G2& display) {
@@ -136,7 +162,4 @@ void MovementAxisScreen::handleInput(InputEvent event) {
 }
 
 void MovementAxisScreen::tick() {
-    if (DataManager::getInstance().consumeTelemetryDirtyFlag()) {
-        setDirty();
-    }
 }

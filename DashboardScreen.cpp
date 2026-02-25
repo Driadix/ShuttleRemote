@@ -2,33 +2,7 @@
 #include "UI_Graph.h"
 #include "ScreenManager.h"
 #include "EventBus.h"
-
-// Legacy String Arrays
-static const String shuttleStatusArray[19] = {
-    "Запрос статуса", "Ручной режим",      "Загрузка",      "Выгрузка",
-    "Уплотнение",     "Эвакуация",         "DEMO",          "Подсчет паллет",
-    "Испытания",      "Обнаружены ошибки", "Ожидание...",   "Прод. загрузка",
-    "Прод. выгрузка", "Прод. выгрузка",    "  Вперед...",   "  Назад...",
-    "  Вверх...",     "  Вниз...",         "  Инициация..."
-};
-
-static const String ErrorMsgArray[21] = {
-    "Нет ошибок",
-    "Сенсор канала F",
-    "Сенсор канала R",
-    "Сенсор канала DF",
-    "Сенсор канала DR",
-    "Сенсор паллет F",
-    "Сенсор паллет R",
-    "Сенсор паллет DF",
-    "Сенсор паллет DR",
-    "Подъемник",
-    "Привод движ.",
-    "Низкий заряд",
-    "Столкновение",
-    "Перегрев",
-    "", "", ""
-};
+#include "Lang_RU.h"
 
 DashboardScreen::DashboardScreen()
     : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false) {
@@ -87,7 +61,7 @@ void DashboardScreen::draw(U8G2& display) {
     if (cachedTelemetry.shuttleStatus == 13)
         display.print("Осталось выгрузить " + String(cachedTelemetry.palleteCount));
     else if (cachedTelemetry.shuttleStatus < 19)
-        display.print(shuttleStatusArray[cachedTelemetry.shuttleStatus]);
+        display.print(SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
     else
         display.print("Status: " + String(cachedTelemetry.shuttleStatus));
 
@@ -103,8 +77,8 @@ void DashboardScreen::draw(U8G2& display) {
     if (_showQueueFull) {
         display.print("! QUEUE FULL !");
     } else if (cachedTelemetry.errorCode) {
-        if (cachedTelemetry.errorCode < 21)
-             display.print("! " + ErrorMsgArray[cachedTelemetry.errorCode] + " !");
+        if (cachedTelemetry.errorCode < 16)
+             display.print(String("! ") + ERROR_STRINGS[cachedTelemetry.errorCode] + " !");
         else
              display.print("! ERR " + String(cachedTelemetry.errorCode) + " !");
     }

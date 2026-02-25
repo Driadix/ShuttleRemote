@@ -6,6 +6,17 @@ DebugInfoScreen::DebugInfoScreen() : _pageIndex(0) {}
 void DebugInfoScreen::onEnter() {
     _pageIndex = 0;
     DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
+    EventBus::subscribe(this);
+}
+
+void DebugInfoScreen::onExit() {
+    EventBus::unsubscribe(this);
+}
+
+void DebugInfoScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::SENSORS_UPDATED) {
+        setDirty();
+    }
 }
 
 void DebugInfoScreen::draw(U8G2& display) {
@@ -73,7 +84,4 @@ void DebugInfoScreen::handleInput(InputEvent event) {
 
 void DebugInfoScreen::tick() {
     DataManager::getInstance().setPollContext(DataManager::PollContext::DEBUG_SENSORS);
-    if (DataManager::getInstance().consumeSensorsDirtyFlag()) {
-        setDirty();
-    }
 }

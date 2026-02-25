@@ -1,21 +1,12 @@
 #include "OptionsScreen.h"
 #include "UI_Graph.h" // For instances
 #include "ScreenManager.h"
-#include "UIBuffer.h"
 #include <cstdio>
-
-// Static definitions
-// char OptionsScreen::_optItemBuffers[OptionsScreen::OPT_ITEM_COUNT][32]; // Removed
-const char* OptionsScreen::_optItemsPtrs[OptionsScreen::OPT_ITEM_COUNT];
 
 OptionsScreen::OptionsScreen()
     : _statusBar(),
-      _menuList(_optItemsPtrs, OPT_ITEM_COUNT, 4)
+      _menuList(OptionsScreen::provideMenuItem, OPT_ITEM_COUNT, 4)
 {
-    // Initialize pointers to UIBuffer lines
-    for (int i = 0; i < OPT_ITEM_COUNT; i++) {
-        _optItemsPtrs[i] = UIBuffer::getLine(i);
-    }
 }
 
 void OptionsScreen::onEnter() {
@@ -27,9 +18,6 @@ void OptionsScreen::onEnter() {
     DataManager::getInstance().requestConfig(SP::CFG_REVERSE_MODE);
     DataManager::getInstance().requestConfig(SP::CFG_MAX_SPEED);
     DataManager::getInstance().requestConfig(SP::CFG_MIN_BATT);
-
-    // Initial update
-    updateMenuItems();
 }
 
 void OptionsScreen::onExit() {
@@ -43,42 +31,28 @@ void OptionsScreen::onEvent(SystemEvent event) {
     }
 }
 
-void OptionsScreen::updateMenuItems() {
-    // Write into shared UIBuffer
-
-    // 0. MPR (Inter Pallet Distance)
-    snprintf(UIBuffer::getLine(0), 32, "MPR: %ld mm", (long)DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET));
-
-    // 1. Reverse Mode
-    bool rev = DataManager::getInstance().getConfig(SP::CFG_REVERSE_MODE) != 0;
-    snprintf(UIBuffer::getLine(1), 32, "Rev Mode: %s", rev ? "<<" : ">>");
-
-    // 2. Max Speed
-    snprintf(UIBuffer::getLine(2), 32, "Max Speed: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10);
-
-    // 3. Change N Device
-    snprintf(UIBuffer::getLine(3), 32, "Change ID: %d", DataManager::getInstance().getShuttleNumber());
-
-    // 4. Battery Protection
-    snprintf(UIBuffer::getLine(4), 32, "Batt Prot: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT));
-
-    // 5. Engineering Menu
-    snprintf(UIBuffer::getLine(5), 32, "Engineering Menu");
-
-    // 6. Save Params
-    snprintf(UIBuffer::getLine(6), 32, "Save Params");
-
-    // 7. Back
-    snprintf(UIBuffer::getLine(7), 32, "Back");
+void OptionsScreen::provideMenuItem(uint8_t index, char* buffer) {
+    switch(index) {
+        case 0: snprintf(buffer, 32, "MPR: %ld mm", (long)DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET)); break;
+        case 1: {
+            bool rev = DataManager::getInstance().getConfig(SP::CFG_REVERSE_MODE) != 0;
+            snprintf(buffer, 32, "Rev Mode: %s", rev ? "<<" : ">>");
+            break;
+        }
+        case 2: snprintf(buffer, 32, "Max Speed: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10); break;
+        case 3: snprintf(buffer, 32, "Change ID: %d", DataManager::getInstance().getShuttleNumber()); break;
+        case 4: snprintf(buffer, 32, "Batt Prot: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT)); break;
+        case 5: strcpy(buffer, "Engineering Menu"); break;
+        case 6: strcpy(buffer, "Save Params"); break;
+        case 7: strcpy(buffer, "Back"); break;
+        default: buffer[0] = '\0'; break;
+    }
 }
 
 void OptionsScreen::draw(U8G2& display) {
     if (_fullRedrawNeeded) {
         display.clearBuffer();
     }
-
-    // Refresh buffer content because it might have been used by another screen
-    updateMenuItems();
 
     // Partial updates: We should clear if needed.
     // ListWidget draws items.

@@ -5,10 +5,13 @@
 // Manages cursor, pagination, and highlight box drawing.
 class ScrollingListWidget : public Widget {
 public:
-    // items: Array of string pointers (const char*)
+    // Callback to populate the buffer for a given item index
+    typedef void (*ItemTextProvider)(uint8_t index, char* buffer);
+
+    // provider: Function to get item text
     // itemCount: Total number of items in the list
     // visibleItems: How many lines fit on the screen (e.g., 4)
-    ScrollingListWidget(const char* const* items, uint8_t itemCount, uint8_t visibleItems);
+    ScrollingListWidget(ItemTextProvider provider, uint8_t itemCount, uint8_t visibleItems);
 
     virtual void draw(U8G2& display, uint8_t x, uint8_t y) override;
     virtual bool handleInput(InputEvent event) override;
@@ -17,7 +20,7 @@ public:
     void setCursorIndex(uint8_t idx);
 
 private:
-    const char* const* _items;
+    ItemTextProvider _provider;
     uint8_t _itemCount;
     uint8_t _visibleItems;
     uint8_t _cursorPos;

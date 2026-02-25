@@ -3,8 +3,9 @@
 #include "StatusBarWidget.h"
 #include "ScrollingListWidget.h"
 #include "DataManager.h"
+#include "EventBus.h"
 
-class MovementScreen : public Screen {
+class MovementScreen : public Screen, public EventListener {
 public:
     MovementScreen();
 
@@ -12,16 +13,18 @@ public:
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;
     ScrollingListWidget _menuList;
 
     static const int MOV_ITEM_COUNT = 3;
-    static const char* _movItems[MOV_ITEM_COUNT];
+    static void provideMenuItem(uint8_t index, char* buffer);
 };
 
-class MovementAxisScreen : public Screen {
+class MovementAxisScreen : public Screen, public EventListener {
 public:
     MovementAxisScreen();
 
@@ -32,13 +35,15 @@ public:
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;
     ScrollingListWidget _menuList;
 
     static const int AXIS_ITEM_COUNT = 9;
-    static const char* _axisItems[AXIS_ITEM_COUNT];
+    static void provideMenuItem(uint8_t index, char* buffer);
     static const int32_t _distances[8]; // Values for items
 
     bool _isForward;
