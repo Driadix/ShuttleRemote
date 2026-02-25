@@ -239,3 +239,7 @@ bool CommLink::isQueueFull() const {
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
     return nextTail == _jobHead;
 }
+
+bool CommLink::isWaitingForAck() const {
+    return _txState == TxState::WAITING_ACK;
+}

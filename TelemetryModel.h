@@ -22,10 +22,17 @@ public:
     int32_t getConfig(uint8_t index) const;
     uint8_t getShuttleNumber() const { return _shuttleNumber; }
 
+    bool isConnected() const { return _isConnected; }
+    uint32_t getLastRxTime() const { return _lastRxTime; }
+    void setConnected(bool connected) { _isConnected = connected; }
+
 private:
     SP::TelemetryPacket _telemetry;
     SP::SensorPacket _sensors;
     SP::StatsPacket _stats;
     int32_t _config[16];
     uint8_t _shuttleNumber;
+
+    uint32_t _lastRxTime;
+    bool _isConnected;
 };

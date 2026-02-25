@@ -14,7 +14,9 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
 
     // 2. Battery Percentage (Shuttle)
     char battBuf[16];
-    if (telemetry.batteryCharge > 100) {
+    if (!DataManager::getInstance().isConnected()) {
+        snprintf(battBuf, sizeof(battBuf), "[N/A]");
+    } else if (telemetry.batteryCharge > 100) {
         snprintf(battBuf, sizeof(battBuf), "[N/A]");
     } else {
         snprintf(battBuf, sizeof(battBuf), "[%d%%]", telemetry.batteryCharge);
@@ -32,13 +34,20 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
 
     // 4. Remote Controller Battery Icon (Animated if charging)
     int percent = DataManager::getInstance().getRemoteBatteryLevel();
+    bool charging = DataManager::getInstance().isCharging();
     
     uint8_t width = 0;
-    if (percent > 95) width = 14;
-    else if (percent > 75) width = 11;
-    else if (percent > 50) width = 8;
-    else if (percent > 25) width = 5;
-    else if (percent > 7)  width = 2;
+    if (charging) {
+        // 0 -> 2, 1 -> 5, 2 -> 8, 3 -> 11, 4 -> 14
+        width = 2 + (_chargeAnimFrame * 3);
+        if (width > 14) width = 14;
+    } else {
+        if (percent > 95) width = 14;
+        else if (percent > 75) width = 11;
+        else if (percent > 50) width = 8;
+        else if (percent > 25) width = 5;
+        else if (percent > 7)  width = 2;
+    }
     
     // Draw Battery Outline
     display.drawFrame(x + 107, y + 1, 18, 10);
@@ -47,5 +56,18 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
     // Fill Battery Level
     if (width > 0) {
         display.drawBox(x + 109, y + 3, width, 6);
+    }
+}
+
+void StatusBarWidget::tick() {
+    if (DataManager::getInstance().isCharging()) {
+        if (millis() - _lastChargeAnimTick > 500) {
+            _lastChargeAnimTick = millis();
+            _chargeAnimFrame++;
+            if (_chargeAnimFrame > 4) _chargeAnimFrame = 0;
+            setDirty();
+        }
+    } else {
+        _chargeAnimFrame = 4; // Full by default or last state? Let's say full so it looks nice if momentarily checked
     }
 }

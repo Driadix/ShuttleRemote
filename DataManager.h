@@ -35,6 +35,9 @@ public:
     uint8_t getShuttleNumber() const;
     int getRemoteBatteryLevel() const;
     uint8_t getRadioChannel() const;
+    bool isConnected() const;
+    bool isWaitingForAck() const;
+    bool isCharging() const;
 
     // --- State Setters ---
     void setPollContext(PollContext ctx);
@@ -42,7 +45,7 @@ public:
     void saveLocalShuttleNumber(uint8_t id);
     void setOtaUpdating(bool isUpdating);
     void setManualMoveMode(bool isMoving);
-    void setRemoteBatteryLevel(int level);
+    void setRemoteBatteryLevel(int level, bool isCharging);
     void setRadioChannel(uint8_t ch);
 
     // --- Utils ---
@@ -74,5 +77,6 @@ private:
     uint32_t _currentPollInterval;
 
     int _remoteBatteryLevel;
+    bool _isCharging;
     uint8_t _radioChannel;
 };

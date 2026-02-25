@@ -16,6 +16,7 @@ public:
     bool sendConfigGet(uint8_t paramID);
 
     bool isQueueFull() const;
+    bool isWaitingForAck() const;
 
 private:
     ITransport* _transport;
