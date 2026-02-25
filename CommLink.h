@@ -18,6 +18,8 @@ public:
     bool isQueueFull() const;
     bool isWaitingForAck() const;
 
+    enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
+
 private:
     ITransport* _transport;
     TelemetryModel* _model;
@@ -42,7 +44,6 @@ private:
     uint8_t _jobTail; // Index where next job will be added
 
     // --- State ---
-    enum class TxState { IDLE, WAITING_ACK, TIMEOUT_ERROR };
     TxState _txState;
     uint8_t _nextSeqNum;
 

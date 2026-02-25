@@ -1,5 +1,7 @@
 #include "DataManager.h"
 #include <Preferences.h>
+#include "Logger.h"
+#include "DebugUtils.h"
 
 DataManager& DataManager::getInstance() {
     static DataManager instance;
@@ -41,11 +43,13 @@ void DataManager::tick() {
     if (currentlyConnected) {
         if (now - _model.getLastRxTime() > 2000) {
             _model.setConnected(false);
+            LOG_I("DATA", "Connection LOST! Telemetry timeout.");
             EventBus::publish(SystemEvent::CONNECTION_LOST);
         }
     } else {
         if (_model.getLastRxTime() > 0 && (now - _model.getLastRxTime() < 2000)) {
             _model.setConnected(true);
+            LOG_I("DATA", "Connection ESTABLISHED with Shuttle %d", _model.getShuttleNumber());
             EventBus::publish(SystemEvent::CONNECTION_RESTORED);
         }
     }
@@ -102,6 +106,7 @@ void DataManager::updatePolling() {
 // --- Public API ---
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
+    LOG_D("DATA", "Dispatching command: MSG_COMMAND (Type: %d) to CommLink", (int)cmd);
     SP::CommandPacket packet;
     packet.cmdType = (uint8_t)cmd;
     packet.arg1 = arg1;
@@ -140,6 +145,7 @@ void DataManager::saveLocalShuttleNumber(uint8_t id) {
     prefs.begin("pult_cfg", false);
     prefs.putUInt("sht_num", id);
     prefs.end();
+    LOG_I("DATA", "Config saved. Shuttle: %d", id);
     setShuttleNumber(id);
 }
 

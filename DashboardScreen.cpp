@@ -3,6 +3,8 @@
 #include "ScreenManager.h"
 #include "EventBus.h"
 #include "Lang_RU.h"
+#include "Logger.h"
+#include "DebugUtils.h"
 
 DashboardScreen::DashboardScreen()
     : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), 
@@ -237,6 +239,7 @@ void DashboardScreen::handleInput(InputEvent event) {
     }
 
     if (!success) {
+        LOG_W("UI", "Input %s ignored: Command Failed / Queue Full.", DebugUtils::getEventName(event));
         _showQueueFull = true;
         _queueFullTimer = millis();
         setDirty();

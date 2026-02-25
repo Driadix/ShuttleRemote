@@ -1,5 +1,6 @@
 #include "ScreenManager.h"
-#include <Arduino.h> // For debugging Serial if needed
+#include <Arduino.h>
+#include "Logger.h"
 
 ScreenManager& ScreenManager::getInstance() {
     static ScreenManager instance;
@@ -40,6 +41,7 @@ void ScreenManager::push(Screen* s) {
         s->onEnter();
         s->setDirty();
     }
+    LOG_I("UI", "Pushed Screen Ptr: %p to stack (Depth: %d)", s, _topIndex);
 }
 
 void ScreenManager::pop() {
@@ -47,6 +49,8 @@ void ScreenManager::pop() {
         _stack[_topIndex]->onExit();
         _stack[_topIndex] = nullptr; // Clear the pointer
         _topIndex--;
+
+        LOG_I("UI", "Popped Screen. New Top Index: %d", _topIndex);
 
         if (_topIndex >= 0) {
             _stack[_topIndex]->setDirty(); // Redraw the underlying screen
