@@ -14,7 +14,10 @@ enum class SystemEvent {
     QUEUE_OK,
     CONNECTION_LOST,
     CONNECTION_RESTORED,
-    LOCAL_BATT_UPDATED
+    LOCAL_BATT_UPDATED,
+    CMD_DISPATCHED,
+    CMD_ACKED,
+    CMD_FAILED
 };
 
 // Interface for listeners

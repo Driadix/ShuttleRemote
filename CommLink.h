@@ -2,6 +2,7 @@
 #include "ITransport.h"
 #include "TelemetryModel.h"
 #include "ShuttleProtocolTypes.h"
+#include "EventBus.h"
 
 class CommLink {
 public:
@@ -14,6 +15,9 @@ public:
     bool sendRequest(uint8_t msgID);
     bool sendConfigSet(uint8_t paramID, int32_t value);
     bool sendConfigGet(uint8_t paramID);
+
+    // Clears any pending user commands (preemption)
+    void clearPendingCommands();
 
     bool isQueueFull() const;
     bool isWaitingForAck() const;
@@ -37,6 +41,7 @@ private:
         uint8_t seqNum;
         uint32_t lastTxTime;
         uint8_t retryCount;
+        bool cancelled;
     };
     static const uint8_t MAX_JOBS = 8;
     TxJob _jobQueue[MAX_JOBS];
@@ -52,6 +57,7 @@ private:
     void processTxQueue();
     void handleRx();
     void processIncomingAck(uint8_t seq, SP::AckPacket* ack);
+    bool isUserCommand(uint8_t msgID) const;
 
     // Buffer management
     uint16_t getFreeSpace() const;

@@ -9,7 +9,7 @@
 DashboardScreen::DashboardScreen()
     : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), 
       _tempShuttleNum(1), _isSelectingShuttle(false), _blinkState(false), _shuttleSelectTimer(0), _lastBlinkTick(0),
-      _animX(0), _animFlagX(0), _lastAnimTick(0) {
+      _animX(0), _animFlagX(0), _lastAnimTick(0), _actionMsg(""), _actionStatus(""), _actionMsgTimer(0) {
 }
 
 void DashboardScreen::onEnter() {
@@ -32,6 +32,24 @@ void DashboardScreen::onEvent(SystemEvent event) {
         _showQueueFull = true;
         _queueFullTimer = millis();
         setDirty();
+    } else if (event == SystemEvent::CMD_DISPATCHED) {
+        SP::CmdType cmd = DataManager::getInstance().getLastUserCommandType();
+        _actionMsg = String(DebugUtils::getUICommandName((uint8_t)cmd));
+        _actionStatus = "[ > ]";
+        _actionMsgTimer = millis();
+        setDirty();
+    } else if (event == SystemEvent::CMD_ACKED) {
+        if (_actionMsg.length() > 0) {
+            _actionStatus = "[ OK ]";
+            _actionMsgTimer = millis();
+            setDirty();
+        }
+    } else if (event == SystemEvent::CMD_FAILED) {
+        if (_actionMsg.length() > 0) {
+            _actionStatus = "[ X ]";
+            _actionMsgTimer = millis();
+            setDirty();
+        }
     }
 }
 
@@ -85,10 +103,15 @@ void DashboardScreen::draw(U8G2& display) {
         drawShuttleStatus(display, cachedTelemetry);
     }
 
-    // ACK Status
-    if (DataManager::getInstance().isWaitingForAck()) {
-        display.drawStr(0, 52, "Ожидание ACK..."); // Waiting for ACK...
+    // ACK Status / Action Bar
+    if (_actionMsg.length() > 0) {
+        char actionBuf[64];
+        snprintf(actionBuf, sizeof(actionBuf), "%s %s", _actionMsg.c_str(), _actionStatus.c_str());
+        display.drawStr(0, 52, actionBuf);
     }
+    // Fallback: If no action message but waiting for ACK (e.g. background task?)
+    // The user requested to replace static space with transient bar.
+    // If we are waiting for ACK but it wasn't a user command (e.g. heartbeat), we probably shouldn't show it here to keep it clean.
 
     // 6. BOTTOM SHUTTLE INDICATOR (Legacy moving number)
     display.setFont(u8g2_font_10x20_t_cyrillic);
@@ -257,6 +280,24 @@ void DashboardScreen::tick() {
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {
         _showQueueFull = false;
         setDirty();
+    }
+
+    // Action Bar Expiration
+    if (_actionMsg.length() > 0) {
+        uint32_t elapsed = millis() - _actionMsgTimer;
+        if (_actionStatus == "[ OK ]") {
+            if (elapsed > 1500) {
+                _actionMsg = "";
+                _actionStatus = "";
+                setDirty();
+            }
+        } else if (_actionStatus == "[ X ]") {
+            if (elapsed > 3000) {
+                _actionMsg = "";
+                _actionStatus = "";
+                setDirty();
+            }
+        }
     }
 
     // Shuttle selection timeout and blinking

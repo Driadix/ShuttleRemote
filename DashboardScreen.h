@@ -34,4 +34,9 @@ private:
     uint8_t _animX;
     uint8_t _animFlagX;
     uint32_t _lastAnimTick;
+
+    // Action Bar State
+    String _actionMsg;
+    String _actionStatus;
+    uint32_t _actionMsgTimer;
 };

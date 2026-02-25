@@ -26,6 +26,7 @@ public:
     bool sendCommand(SP::CmdType cmd, int32_t arg1 = 0, int32_t arg2 = 0);
     bool requestConfig(SP::ConfigParamID paramID);
     bool setConfig(SP::ConfigParamID paramID, int32_t value);
+    SP::CmdType getLastUserCommandType() const;
 
     // --- Data Getters (Read-Only) ---
     const SP::TelemetryPacket& getTelemetry() const;
@@ -79,4 +80,5 @@ private:
     int _remoteBatteryLevel;
     bool _isCharging;
     uint8_t _radioChannel;
+    SP::CmdType _lastUserCommandType;
 };

@@ -71,6 +71,13 @@ void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
     if (_txState == TxState::WAITING_ACK && _jobHead != _jobTail) {
         if (_jobQueue[_jobHead].seqNum == seq) {
             LOG_D("COMM", "ACK matched for Seq: %d. Job cleared.", seq);
+
+            uint16_t msgIDIndex = (_jobQueue[_jobHead].bufferOffset + 6) % TX_BUFFER_SIZE;
+            uint8_t msgID = _txRingBuffer[msgIDIndex];
+            if (isUserCommand(msgID)) {
+                EventBus::publish(SystemEvent::CMD_ACKED);
+            }
+
             // Success! Advance job queue
             _jobHead = (_jobHead + 1) % MAX_JOBS;
             _txState = TxState::IDLE;
@@ -180,6 +187,7 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
     job->length = totalLen;
     job->seqNum = header.seq;
     job->retryCount = 0;
+    job->cancelled = false;
 
     _jobTail = nextTail;
 
@@ -188,6 +196,16 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
 
 void CommLink::processTxQueue() {
     if (!_transport) return;
+
+    // Skip cancelled jobs at the head
+    while (_jobHead != _jobTail && _jobQueue[_jobHead].cancelled) {
+         // Optionally log skip
+         // LOG_D("COMM", "Skipping cancelled job Seq: %d", _jobQueue[_jobHead].seqNum);
+         _jobHead = (_jobHead + 1) % MAX_JOBS;
+         if (_jobHead == _jobTail) _txWriteIndex = 0; // Optimization
+         // If we were waiting for this job, we are not anymore.
+         _txState = TxState::IDLE;
+    }
 
     if (_txState == TxState::IDLE) {
         if (_jobHead != _jobTail) {
@@ -218,6 +236,13 @@ void CommLink::processTxQueue() {
                     }
                 } else {
                     LOG_I("COMM", "Max retries reached for Seq: %d. Command failed.", job->seqNum);
+
+                    uint16_t msgIDIndex = (job->bufferOffset + 6) % TX_BUFFER_SIZE;
+                    uint8_t msgID = _txRingBuffer[msgIDIndex];
+                    if (isUserCommand(msgID)) {
+                        EventBus::publish(SystemEvent::CMD_FAILED);
+                    }
+
                     _txState = TxState::TIMEOUT_ERROR;
                 }
             }
@@ -265,4 +290,32 @@ bool CommLink::isQueueFull() const {
 
 bool CommLink::isWaitingForAck() const {
     return _txState == TxState::WAITING_ACK;
+}
+
+void CommLink::clearPendingCommands() {
+    uint8_t idx = _jobHead;
+    while (idx != _jobTail) {
+        TxJob* job = &_jobQueue[idx];
+        uint16_t msgIDIndex = (job->bufferOffset + 6) % TX_BUFFER_SIZE;
+        uint8_t msgID = _txRingBuffer[msgIDIndex];
+
+        if (isUserCommand(msgID)) {
+            job->cancelled = true;
+
+            // If we are currently waiting for ACK for this job, abort the wait.
+            // The job will be skipped in the next processTxQueue cycle.
+            if (_txState == TxState::WAITING_ACK && idx == _jobHead) {
+                LOG_I("COMM", "Preempting command: Aborting wait for Seq: %d", job->seqNum);
+                _txState = TxState::IDLE;
+            } else {
+                LOG_D("COMM", "Preempting command: Marking Seq: %d as cancelled", job->seqNum);
+            }
+        }
+
+        idx = (idx + 1) % MAX_JOBS;
+    }
+}
+
+bool CommLink::isUserCommand(uint8_t msgID) const {
+    return (msgID == SP::MSG_COMMAND || msgID == SP::MSG_CONFIG_SET || msgID == SP::MSG_CONFIG_GET);
 }
