@@ -33,15 +33,15 @@ void OptionsScreen::onEvent(SystemEvent event) {
 
 void OptionsScreen::provideMenuItem(uint8_t index, char* buffer) {
     switch(index) {
-        case 0: snprintf(buffer, 32, "MPR: %ld mm", (long)DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET)); break;
+        case 0: snprintf(buffer, 32, "MPR: %-4ld mm", (long)DataManager::getInstance().getConfig(SP::CFG_INTER_PALLET)); break;
         case 1: {
             bool rev = DataManager::getInstance().getConfig(SP::CFG_REVERSE_MODE) != 0;
-            snprintf(buffer, 32, "Rev Mode: %s", rev ? "<<" : ">>");
+            snprintf(buffer, 32, "Rev Mode: %-3s", rev ? "<<" : ">>");
             break;
         }
-        case 2: snprintf(buffer, 32, "Max Speed: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10); break;
-        case 3: snprintf(buffer, 32, "Change ID: %d", DataManager::getInstance().getShuttleNumber()); break;
-        case 4: snprintf(buffer, 32, "Batt Prot: %ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT)); break;
+        case 2: snprintf(buffer, 32, "Max Speed: %-3ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10); break;
+        case 3: snprintf(buffer, 32, "Change ID: %-3d", DataManager::getInstance().getShuttleNumber()); break;
+        case 4: snprintf(buffer, 32, "Batt Prot: %-3ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT)); break;
         case 5: strcpy(buffer, "Engineering Menu"); break;
         case 6: strcpy(buffer, "Save Params"); break;
         case 7: strcpy(buffer, "Back"); break;
@@ -72,13 +72,6 @@ void OptionsScreen::draw(U8G2& display) {
     // But to respect the "Partial" goal:
     // I will let it overdraw.
     // To prevent artifacts, I should clear the list area.
-
-    if (!_fullRedrawNeeded) {
-        // Clear list area to be safe
-         display.setDrawColor(0);
-         display.drawBox(0, 16, 128, 64-16);
-         display.setDrawColor(1);
-    }
 
     _statusBar.draw(display, 0, 0);
     _menuList.draw(display, 0, 16);

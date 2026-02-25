@@ -35,10 +35,10 @@ void EngineeringMenuScreen::provideMenuItem(uint8_t index, char* buffer) {
         case 3: strcpy(buffer, "Logging: Toggle"); break;
         case 4: strcpy(buffer, "Movement"); break;
         case 5: strcpy(buffer, "Change Channel"); break;
-        case 6: snprintf(buffer, 32, "Shuttle Len: %d", DataManager::getInstance().getConfig(SP::CFG_SHUTTLE_LEN)); break;
-        case 7: snprintf(buffer, 32, "Wait Time: %d", DataManager::getInstance().getConfig(SP::CFG_WAIT_TIME)); break;
-        case 8: snprintf(buffer, 32, "MPR Offset: %d", DataManager::getInstance().getConfig(SP::CFG_MPR_OFFSET)); break;
-        case 9: snprintf(buffer, 32, "Chnl Offset: %d", DataManager::getInstance().getConfig(SP::CFG_CHNL_OFFSET)); break;
+        case 6: snprintf(buffer, 32, "Shuttle Len: %-4d", DataManager::getInstance().getConfig(SP::CFG_SHUTTLE_LEN)); break;
+        case 7: snprintf(buffer, 32, "Wait Time: %-3d", DataManager::getInstance().getConfig(SP::CFG_WAIT_TIME)); break;
+        case 8: snprintf(buffer, 32, "MPR Offset: %-4d", DataManager::getInstance().getConfig(SP::CFG_MPR_OFFSET)); break;
+        case 9: snprintf(buffer, 32, "Chnl Offset: %-4d", DataManager::getInstance().getConfig(SP::CFG_CHNL_OFFSET)); break;
         case 10: strcpy(buffer, "Stats"); break;
         case 11: strcpy(buffer, "Back"); break;
         default: buffer[0] = '\0'; break;

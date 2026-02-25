@@ -63,6 +63,7 @@ void ScreenManager::popToRoot() {
     // Now _topIndex is 0 (or -1 if empty).
     // If it's 0, make sure it redraws.
     if (_topIndex == 0 && _stack[0] != nullptr) {
+        _stack[0]->onEnter();
         _stack[0]->setDirty();
     }
 }

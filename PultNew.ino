@@ -136,17 +136,8 @@ void setup()
 }
 #pragma endregion
 
-bool isFabala = true;
-
 void loop()
 {
-  if (isFabala)
-  {
-    // configArray removed, skip print
-    isFabala = false;
-    Serial.print(" | ");
-  }
-
   if (isUpdateStarted)
   {
     ElegantOTA.loop();
