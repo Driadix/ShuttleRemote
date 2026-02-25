@@ -3,6 +3,10 @@
 UartTransport::UartTransport(HardwareSerial* serial) : _serial(serial) {
 }
 
+void UartTransport::setSerial(HardwareSerial* serial) {
+    _serial = serial;
+}
+
 int UartTransport::available() {
     return _serial ? _serial->available() : 0;
 }

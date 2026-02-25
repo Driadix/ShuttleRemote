@@ -3,8 +3,9 @@
 #include "StatusBarWidget.h"
 #include "ScrollingListWidget.h"
 #include "DataManager.h"
+#include "EventBus.h"
 
-class EngineeringMenuScreen : public Screen {
+class EngineeringMenuScreen : public Screen, public EventListener {
 public:
     EngineeringMenuScreen();
 
@@ -12,15 +13,15 @@ public:
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;
     ScrollingListWidget _menuList;
 
     static const int ENG_ITEM_COUNT = 12;
-    static char _engItemBuffers[ENG_ITEM_COUNT][32];
-    static const char* _engItemsPtrs[ENG_ITEM_COUNT];
+    static void provideMenuItem(uint8_t index, char* buffer);
 
-    void updateMenuItems();
     void adjustValue(int idx, bool increase);
 };

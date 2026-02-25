@@ -4,7 +4,8 @@
 
 class UartTransport : public ITransport {
 public:
-    UartTransport(HardwareSerial* serial);
+    UartTransport(HardwareSerial* serial = nullptr);
+    void setSerial(HardwareSerial* serial);
 
     virtual int available() override;
     virtual int read() override;

@@ -26,9 +26,7 @@ private:
     ScrollingListWidget _menuList; // We need to update this to point to UIBuffer
 
     static const int OPT_ITEM_COUNT = 8;
-    // static char _optItemBuffers[OPT_ITEM_COUNT][32]; // Removed in favor of UIBuffer
-    static const char* _optItemsPtrs[OPT_ITEM_COUNT];
+    static void provideMenuItem(uint8_t index, char* buffer);
 
-    void updateMenuItems();
     void adjustValue(int idx, bool increase);
 };

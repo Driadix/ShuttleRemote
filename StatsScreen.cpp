@@ -5,6 +5,17 @@ StatsScreen::StatsScreen() {}
 
 void StatsScreen::onEnter() {
     DataManager::getInstance().setPollContext(DataManager::PollContext::STATS_VIEW);
+    EventBus::subscribe(this);
+}
+
+void StatsScreen::onExit() {
+    EventBus::unsubscribe(this);
+}
+
+void StatsScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::STATS_UPDATED) {
+        setDirty();
+    }
 }
 
 void StatsScreen::draw(U8G2& display) {
@@ -38,8 +49,4 @@ void StatsScreen::handleInput(InputEvent event) {
 void StatsScreen::tick() {
     // Keep context active
     DataManager::getInstance().setPollContext(DataManager::PollContext::STATS_VIEW);
-
-    if (DataManager::getInstance().consumeStatsDirtyFlag()) {
-        setDirty();
-    }
 }

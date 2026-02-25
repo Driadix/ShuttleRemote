@@ -26,25 +26,17 @@ HardwareSerial &hSerial = Serial2;
 
 int addr0 = 0;
 
-uint8_t configArray[] = { 0xC0, 0x0, 0x0, 0x1C, 0x10, 0x46 };
-const int configArrayStartAddress = addr0 + 4;
-uint8_t channelNumber = configArray[4];
-uint8_t tempChannelNumber = channelNumber;
+// Config Array Replaced by Local Generation in initRadio()
 uint8_t logWrite = 0;
 U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/18, /* data=*/23, /* cs=*/2, /* dc=*/19, /* reset=*/4);
 #define R_VERSION   " v1.0 2023"
 
 int pin_code = 1441;
 uint8_t pass_menu = 1;
-// uint8_t pass_menu_trig = 0; // Legacy
-// int temp_pin_code = 0; // Legacy
 
 int8_t shuttleNumber = 1;
-// int8_t shuttleTempNum = 1; // Legacy
 
 bool isUpdateStarted = false;
-
-// Legacy variables removed (inputQuant, numquant, etc.)
 
 bool displayActive = true;
 
@@ -54,24 +46,9 @@ const int Charge_Pin = 39;
 
 const int LedRF_Pin = 21;
 const int LedWiFi_Pin = 22;
-// const int rfout = D4;
 String Serial2in = "";
 
-// uint8_t warncode; // Removed
-// int16_t speedset = 10; // Removed, handled by DataManager
-// int16_t newspeedset = 0;
-// uint8_t shuttbackaway = 100;
-// String palletconfst = "0";
-// bool showarn = false;
-// bool warnblink = false;
 int8_t chargercount = 0;
-// bool hideshuttnum = false;
-// bool blinkshuttnum = false;
-// uint8_t pallet_plank = 0;
-// bool pallet_800_only = 0;
-// String calibret = "Нет";
-// int dist = 0;
-// char currentKey;
 
 uint8_t battindicat = 0;
 int chargact = 0;
@@ -87,7 +64,11 @@ void initRadio() {
   digitalWrite(rfout0, HIGH);
   delay(1000);
   Serial.println("Write LoRa settings...");
-  Serial2.write(configArray, sizeof(configArray));
+
+  uint8_t config[6] = { 0xC0, 0x0, 0x0, 0x1C, 0x00, 0x46 };
+  config[4] = DataManager::getInstance().getRadioChannel();
+
+  Serial2.write(config, sizeof(config));
   delay(100);
   digitalWrite(rfout0, LOW);
 
@@ -129,9 +110,7 @@ void setup()
   prefs.begin("pult_cfg", false);
   shuttleNumber = (int8_t)prefs.getUInt("sht_num", 1);
   pass_menu = (uint8_t)prefs.getUInt("pass_menu", 1);
-  channelNumber = (uint8_t)prefs.getUInt("rf_chan", configArray[4]);
-  configArray[4] = channelNumber;
-  tempChannelNumber = channelNumber;
+  uint8_t savedChannel = (uint8_t)prefs.getUInt("rf_chan", 0x10);
 
   delay(50);
   
@@ -139,6 +118,7 @@ void setup()
   InputManager::init();
   PowerController::init();
   DataManager::getInstance().init(&Serial2, shuttleNumber);
+  DataManager::getInstance().setRadioChannel(savedChannel);
   
   initRadio();
 
@@ -162,12 +142,7 @@ void loop()
 {
   if (isFabala)
   {
-    for (int i = 0; i < sizeof(configArray); i++)
-    {
-      Serial.print("0x");
-      Serial.print(configArray[i], HEX);
-      Serial.print(" ");
-    }
+    // configArray removed, skip print
     isFabala = false;
     Serial.print(" | ");
   }
@@ -204,56 +179,32 @@ void loop()
       ScreenManager::getInstance().tick(u8g2);
   }
 
-  // --- Battery Monitoring (Legacy extracted) ---
+  // --- Battery Monitoring ---
   if (displayActive)
   {
     if (millis() - checkA0time > 500)
     {
-      // u8g2.setPowerSave(0); // Managed by PowerController? Or need to keep awake?
-      // displayActive = true;
       checkA0time = millis();
 
-      if (!digitalRead(Charge_Pin))
-      {
+      // Charging Logic (Legacy)
+      if (!digitalRead(Charge_Pin)) {
         chargercount = 8;
-      }
-      else
-      {
+      } else {
         chargercount--;
-        if (chargercount <= 0)
-        {
+        if (chargercount <= 0) {
           chargact = 0;
           chargercount = 0;
         }
       }
-      if (chargercount > 0)
-      {
+      if (chargercount > 0) {
         chargact = 1;
         prevpercent = 100;
         battindicat += 25;
         if (battindicat > 100) battindicat = 0;
       }
-      // Note: Updating battery display is handled by StatusBarWidget polling DataManager or local logic?
-      // StatusBarWidget usually reads from DataManager.
-      // We should update DataManager with local battery info if needed?
-      // DataManager telemetry comes from Shuttle. Local battery is Pult battery.
-      // StatusBarWidget needs to know Pult battery.
-      // Currently StatusBarWidget likely reads DataManager telemetry battery (Shuttle Battery).
-      // If we want Pult battery, we need a way to pass it.
-      // But legacy code displayed shuttle battery primarily?
-      // Legacy: "Заряд [err] / [xx%]". This is from Telemetry.
-      // And `BatteryLevel` function drew icon.
-      // `BatteryLevel` used `battindicat` (charging) or `getVoltage()` (Pult battery?).
-      // The icon at top right seems to be Pult battery.
-      // Text "Заряд [...]" is Shuttle battery.
 
-      // StatusBarWidget should probably handle both.
-      // But for now, let's assume StatusBarWidget handles generic info.
-      // If StatusBarWidget doesn't implement Pult battery check, we might lose that icon.
-      // Prompt said: "StatusBarWidget is a pure observer that renders telemetry data".
-      // So it renders Shuttle info.
-      // Pult battery info might be missing if StatusBarWidget doesn't include it.
-      // But I am following the plan "Include your StatusBarWidget".
+      // Update DataManager with Remote Battery
+      DataManager::getInstance().setRemoteBatteryLevel(getVoltage());
     }
   }
   else
@@ -277,8 +228,7 @@ int getVoltage()
 }
 
 void setRadioChannel(uint8_t ch) {
-    channelNumber = ch;
-    configArray[4] = ch;
+    DataManager::getInstance().setRadioChannel(ch);
     prefs.putUInt("rf_chan", ch);
     initRadio();
 }

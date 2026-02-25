@@ -3,8 +3,9 @@
 #include "StatusBarWidget.h"
 #include "ScrollingListWidget.h"
 #include "DataManager.h"
+#include "EventBus.h"
 
-class MainMenuScreen : public Screen {
+class MainMenuScreen : public Screen, public EventListener {
 public:
     MainMenuScreen();
 
@@ -12,17 +13,14 @@ public:
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
+    virtual void onExit() override;
+    virtual void onEvent(SystemEvent event) override;
 
 private:
     StatusBarWidget _statusBar;
     ScrollingListWidget _menuList;
 
-    // Dynamic Menu Items Buffer
-    // We need buffers for items that change (Pallet Count, Mode)
     // Legacy had 8 items. We add Engineering Menu -> 9 items.
     static const int MENU_ITEM_COUNT = 9;
-    static char _menuItemBuffers[MENU_ITEM_COUNT][32];
-    static const char* _menuItemsPtrs[MENU_ITEM_COUNT];
-
-    void updateMenuItems();
+    static void provideMenuItem(uint8_t index, char* buffer);
 };

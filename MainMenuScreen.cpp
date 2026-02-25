@@ -3,60 +3,48 @@
 #include "ScreenManager.h"
 #include <cstdio> // For snprintf
 
-// Static member definitions
-char MainMenuScreen::_menuItemBuffers[MainMenuScreen::MENU_ITEM_COUNT][32];
-const char* MainMenuScreen::_menuItemsPtrs[MainMenuScreen::MENU_ITEM_COUNT];
-
 MainMenuScreen::MainMenuScreen()
     : _statusBar(),
-      _menuList(_menuItemsPtrs, MENU_ITEM_COUNT, 4) // visibleItems=4
+      _menuList(MainMenuScreen::provideMenuItem, MENU_ITEM_COUNT, 4)
 {
-    // Initialize static pointers (only once ideally, but constructor is called once for static instance)
-    for (int i = 0; i < MENU_ITEM_COUNT; i++) {
-        _menuItemsPtrs[i] = _menuItemBuffers[i];
-    }
 }
 
 void MainMenuScreen::onEnter() {
-    updateMenuItems();
-    // Reset cursor to top? Legacy doesn't, but maybe good UX.
-    // _menuList.setCursorIndex(0);
+    EventBus::subscribe(this);
 }
 
-void MainMenuScreen::updateMenuItems() {
-    // 0. Options
-    snprintf(_menuItemBuffers[0], 32, "Settings"); // "Настройки"
+void MainMenuScreen::onExit() {
+    EventBus::unsubscribe(this);
+}
 
-    // 1. Errors
-    snprintf(_menuItemBuffers[1], 32, "Errors");
+void MainMenuScreen::onEvent(SystemEvent event) {
+    if (event == SystemEvent::TELEMETRY_UPDATED || event == SystemEvent::CONFIG_UPDATED) {
+        setDirty();
+    }
+}
 
-    // 2. Unload Pallets
-    snprintf(_menuItemBuffers[2], 32, "Unload Pallets");
-
-    // 3. Engineering Menu (Secured)
-    snprintf(_menuItemBuffers[3], 32, "Engineering Menu");
-
-    // 4. Pallet Count (Dynamic)
-    const auto& tel = DataManager::getInstance().getTelemetry();
-    snprintf(_menuItemBuffers[4], 32, "Pallet Count: %d", tel.palleteCount);
-
-    // 5. Compact
-    snprintf(_menuItemBuffers[5], 32, "Compact");
-
-    // 6. Mode (Dynamic)
-    bool fifoLifo = (tel.stateFlags & 0x20) != 0; // 0x20 check from legacy
-    snprintf(_menuItemBuffers[6], 32, "Mode: %s", fifoLifo ? "LIFO" : "FIFO");
-
-    // 7. Home
-    snprintf(_menuItemBuffers[7], 32, "Return Home");
-
-    // 8. Back
-    snprintf(_menuItemBuffers[8], 32, "Back");
+void MainMenuScreen::provideMenuItem(uint8_t index, char* buffer) {
+    switch(index) {
+        case 0: strcpy(buffer, "Settings"); break;
+        case 1: strcpy(buffer, "Errors"); break;
+        case 2: strcpy(buffer, "Unload Pallets"); break;
+        case 3: strcpy(buffer, "Engineering Menu"); break;
+        case 4:
+            snprintf(buffer, 32, "Pallet Count: %d", DataManager::getInstance().getTelemetry().palleteCount);
+            break;
+        case 5: strcpy(buffer, "Compact"); break;
+        case 6: {
+            bool fifoLifo = (DataManager::getInstance().getTelemetry().stateFlags & 0x20) != 0;
+            snprintf(buffer, 32, "Mode: %s", fifoLifo ? "LIFO" : "FIFO");
+            break;
+        }
+        case 7: strcpy(buffer, "Return Home"); break;
+        case 8: strcpy(buffer, "Back"); break;
+        default: buffer[0] = '\0'; break;
+    }
 }
 
 void MainMenuScreen::draw(U8G2& display) {
-    updateMenuItems(); // Ensure dynamic strings are fresh
-
     _statusBar.draw(display, 0, 0);
     _menuList.draw(display, 0, 16); // Below status bar
 }
@@ -114,7 +102,4 @@ void MainMenuScreen::handleInput(InputEvent event) {
 }
 
 void MainMenuScreen::tick() {
-    if (DataManager::getInstance().consumeTelemetryDirtyFlag()) {
-        setDirty();
-    }
 }
