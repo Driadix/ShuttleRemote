@@ -115,10 +115,6 @@ void MovementAxisScreen::draw(U8G2& display) {
     _statusBar.draw(display, 0, 0);
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
-    display.setCursor(0, 15); // Wait, StatusBar is at 0, draws approx 10px high?
-    // StatusBarWidget implementation check: draws at y. Usually takes some space.
-    // Assuming it's top bar.
-
     // Show direction indicator
     display.setCursor(110, 25);
     display.print(_isForward ? ">>" : "<<");

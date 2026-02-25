@@ -39,6 +39,7 @@ public:
     // --- State Setters ---
     void setPollContext(PollContext ctx);
     void setShuttleNumber(uint8_t id);
+    void saveLocalShuttleNumber(uint8_t id);
     void setOtaUpdating(bool isUpdating);
     void setManualMoveMode(bool isMoving);
     void setRemoteBatteryLevel(int level);

@@ -39,31 +39,36 @@ void DashboardScreen::draw(U8G2& display) {
     display.setDrawColor(1); // White text
 
     // 2. Main Status
-    display.setCursor(0, 25);
-    if (cachedTelemetry.shuttleStatus == 13)
-        display.print("Осталось выгрузить " + String(cachedTelemetry.palleteCount));
-    else if (cachedTelemetry.shuttleStatus < 19)
-        display.print(SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
-    else
-        display.print("Status: " + String(cachedTelemetry.shuttleStatus));
+    char buf[64];
+    if (cachedTelemetry.shuttleStatus == 13) {
+        snprintf(buf, sizeof(buf), "Осталось выгрузить %d", cachedTelemetry.palleteCount);
+        display.drawStr(0, 25, buf);
+    }
+    else if (cachedTelemetry.shuttleStatus < 19) {
+        display.drawStr(0, 25, SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
+    }
+    else {
+        snprintf(buf, sizeof(buf), "Status: %d", cachedTelemetry.shuttleStatus);
+        display.drawStr(0, 25, buf);
+    }
 
     // 3. Warnings / Queue Full / Errors
-    display.setCursor(0, 40);
     if (_showQueueFull) {
-        display.print("! QUEUE FULL !");
+        display.drawStr(0, 40, "! QUEUE FULL !");
     } else if (cachedTelemetry.errorCode) {
-        if (cachedTelemetry.errorCode < 16)
-             display.print(String("! ") + ERROR_STRINGS[cachedTelemetry.errorCode] + " !");
-        else
-             display.print("! ERR " + String(cachedTelemetry.errorCode) + " !");
+        if (cachedTelemetry.errorCode < 16) {
+             snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
+             display.drawStr(0, 40, buf);
+        }
+        else {
+             snprintf(buf, sizeof(buf), "! ERR %d !", cachedTelemetry.errorCode);
+             display.drawStr(0, 40, buf);
+        }
     }
 
     // 4. Manual Command
     if (_isManualMoving) {
-        // Area: 85, 40...
-        // Already cleared by above box? Yes.
-        display.setCursor(85, 40);
-        display.print(_manualCommand);
+        display.drawStr(85, 40, _manualCommand);
     }
 
     // 5. Draw Animation

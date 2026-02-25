@@ -1,4 +1,5 @@
 #include "DataManager.h"
+#include <Preferences.h>
 
 DataManager& DataManager::getInstance() {
     static DataManager instance;
@@ -116,6 +117,14 @@ void DataManager::setPollContext(PollContext ctx) {
 
 void DataManager::setShuttleNumber(uint8_t id) {
     _model.setShuttleNumber(id);
+}
+
+void DataManager::saveLocalShuttleNumber(uint8_t id) {
+    Preferences prefs;
+    prefs.begin("pult_cfg", false);
+    prefs.putUInt("sht_num", id);
+    prefs.end();
+    setShuttleNumber(id);
 }
 
 void DataManager::setOtaUpdating(bool isUpdating) {

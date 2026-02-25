@@ -1,8 +1,5 @@
 #include "ChangeShuttleNumScreen.h"
 #include "ScreenManager.h"
-#include <Preferences.h>
-
-extern Preferences prefs;
 
 ChangeShuttleNumScreen::ChangeShuttleNumScreen()
     : _spinner(2, 1)
@@ -37,8 +34,7 @@ void ChangeShuttleNumScreen::handleInput(InputEvent event) {
         if (val > 32) val = 32;
         if (val < 1) val = 1;
 
-        prefs.putUInt("sht_num", (uint8_t)val);
-        DataManager::getInstance().setShuttleNumber((uint8_t)val);
+        DataManager::getInstance().saveLocalShuttleNumber((uint8_t)val);
 
         ScreenManager::getInstance().popToRoot();
         return;
