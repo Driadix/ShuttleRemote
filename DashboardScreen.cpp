@@ -105,14 +105,18 @@ void DashboardScreen::draw(U8G2& display) {
     }
 
     // ACK Status / Action Bar
-    if (_actionMsg.length() > 0) {
-        char actionBuf[64];
-        snprintf(actionBuf, sizeof(actionBuf), "%s %s", _actionMsg.c_str(), _actionStatus.c_str());
-        display.drawStr(0, 52, actionBuf);
+    if (!DataManager::getInstance().isConnected()) {
+        if ((millis() / 500) % 2 == 0) {
+            display.drawStr(0, 52, "Поиск шаттла...");
+        }
+    } else {
+        if (_actionMsg.length() > 0) {
+            char actionBuf[64];
+            snprintf(actionBuf, sizeof(actionBuf), "%s %s", _actionMsg.c_str(), _actionStatus.c_str());
+            display.drawStr(0, 52, actionBuf);
+        }
     }
-    // Fallback: If no action message but waiting for ACK (e.g. background task?)
-    // The user requested to replace static space with transient bar.
-    // If we are waiting for ACK but it wasn't a user command (e.g. heartbeat), we probably shouldn't show it here to keep it clean.
+
 
     // 6. BOTTOM SHUTTLE INDICATOR (Legacy moving number)
     display.setFont(u8g2_font_10x20_t_cyrillic);
@@ -198,22 +202,22 @@ void DashboardScreen::handleInput(InputEvent event) {
              break;
 
         case InputEvent::LIFT_UP_PRESS: // 'E'
-            DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP);
+            if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP)) success = false;
             break;
         case InputEvent::LIFT_DOWN_PRESS: // '9'
-            DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN);
+            if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN)) success = false;
             break;
         case InputEvent::LOAD_PRESS: // '5'
-             DataManager::getInstance().sendCommand(SP::CMD_LOAD);
+             if (!DataManager::getInstance().sendCommand(SP::CMD_LOAD)) success = false;
              break;
         case InputEvent::LONG_LOAD_PRESS:
-             DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD);
+             if (!DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD)) success = false;
              break;
         case InputEvent::UNLOAD_PRESS: // 'C'
-             DataManager::getInstance().sendCommand(SP::CMD_UNLOAD);
+             if (!DataManager::getInstance().sendCommand(SP::CMD_UNLOAD)) success = false;
              break;
         case InputEvent::LONG_UNLOAD_PRESS:
-             DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD);
+             if (!DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD)) success = false;
              break;
 
         case InputEvent::BACK_PRESS: // '7'
