@@ -46,32 +46,36 @@ void DataManager::tick() {
     _commLink.tick();
 
     uint32_t now = millis();
-    uint32_t timeoutLimit = (_pollingMode == PollingMode::IDLE_KEEPALIVE) ? 6000 : 2000;
-
+    
+    // 1. Connection Watchdog
+    uint32_t timeoutLimit = 4000; 
     if (_model.isConnected() && (now - _model.getLastRxTime() > timeoutLimit)) {
         _model.setConnected(false);
-        LOG_I("DATA", "Connection LOST! Timeout: %u ms", timeoutLimit);
+        LOG_I("DATA", "Connection LOST! Timeout");
         EventBus::publish(SystemEvent::CONNECTION_LOST);
     }
 
-    if (_pollingMode == PollingMode::CUSTOM_DATA) return;
-
+    // 2. Dynamic Polling State Machine
     if (_isManualMoving) {
         if (now - _manualHeartbeatTimer >= 200) {
             _manualHeartbeatTimer = now;
-            if (!_commLink.hasPendingHeartbeat()) {
-                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0);
-            }
+            _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT);
         }
     } else {
-        uint32_t pollInterval = (_pollingMode == PollingMode::IDLE_KEEPALIVE) ? 2000 : 500;
-        if (!_model.isConnected()) pollInterval = 1500;
+        uint32_t heartbeatInterval;
+        if (!_model.isConnected()) {
+            heartbeatInterval = 1500; // Hunting for shuttle
+        } else if (_pollingMode == PollingMode::ACTIVE_TELEMETRY) {
+            heartbeatInterval = 500;  // Fast updates on Dashboard
+        } else if (_pollingMode == PollingMode::IDLE_KEEPALIVE) {
+            heartbeatInterval = 1500; // Slow updates in menus
+        } else { // CUSTOM_DATA
+            heartbeatInterval = 3000; // Let other requests dominate
+        }
 
-        if (now - _lastHeartbeatTimer >= pollInterval) {
+        if (now - _lastHeartbeatTimer >= heartbeatInterval) {
             _lastHeartbeatTimer = now;
-            if (!_commLink.hasPendingHeartbeat()) {
-                _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT);
-            }
+            _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT);
         }
     }
 }
@@ -79,34 +83,19 @@ void DataManager::tick() {
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     if (!_model.isConnected()) return false; 
 
-    _commLink.clearPendingCommands();
     _lastUserCommandType = cmd;
 
-    uint8_t retries = 1;
-    uint16_t timeout = 250;
+    uint8_t retries = 0; // Stateless fire-and-forget for actions!
+    uint16_t timeout = 1000;
 
     switch (cmd) {
-        case SP::CMD_STOP:
-        case SP::CMD_STOP_MANUAL:
-        case SP::CMD_EVACUATE_ON: 
-            retries = 4; timeout = 150; break;
-        case SP::CMD_LIFT_UP:
-        case SP::CMD_LIFT_DOWN:
-        case SP::CMD_LOAD:
-        case SP::CMD_UNLOAD:
-        case SP::CMD_LONG_LOAD:
-        case SP::CMD_LONG_UNLOAD:
-        case SP::CMD_LONG_UNLOAD_QTY:
-        case SP::CMD_COMPACT_F:
-        case SP::CMD_COMPACT_R:
         case SP::CMD_CALIBRATE:
-        case SP::CMD_HOME:
-        case SP::CMD_RESET_ERROR:
         case SP::CMD_SAVE_EEPROM:
         case SP::CMD_SET_DATETIME:
-            retries = 2; timeout = 350; break;
-        default:
-            retries = 1; timeout = 250; break;
+            retries = 1; // Only invisible system states get a retry
+            timeout = 1500;
+            break;
+        default: break;
     }
 
     SP::CommandPacket packet;
@@ -120,25 +109,16 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
 }
 
 bool DataManager::sendRequest(SP::MsgID msgId) {
-    if (_commLink.isWaitingForAck()) return false;
-    return _commLink.sendRequest(msgId, 0, 500);
+    // Fire and forget request. Does not queue, does not wait for ACK.
+    return _commLink.sendRequest(msgId);
 }
 
 SP::CmdType DataManager::getLastUserCommandType() const { return _lastUserCommandType; }
 
-bool DataManager::requestConfig(SP::ConfigParamID paramID) {
-    return _commLink.sendConfigGet((uint8_t)paramID);
-}
-bool DataManager::setConfig(SP::ConfigParamID paramID, int32_t value) {
-    return _commLink.sendConfigSet((uint8_t)paramID, value);
-}
-
-bool DataManager::requestFullConfig() {
-    return _commLink.sendRequest(SP::MSG_CONFIG_SYNC_REQ, 3, 1000);
-}
-bool DataManager::pushFullConfig(const SP::FullConfigPacket& config) {
-    return _commLink.sendFullConfigSync(config);
-}
+bool DataManager::requestConfig(SP::ConfigParamID paramID) { return _commLink.sendConfigGet((uint8_t)paramID); }
+bool DataManager::setConfig(SP::ConfigParamID paramID, int32_t value) { return _commLink.sendConfigSet((uint8_t)paramID, value); }
+bool DataManager::requestFullConfig() { return sendRequest(SP::MSG_CONFIG_SYNC_REQ); }
+bool DataManager::pushFullConfig(const SP::FullConfigPacket& config) { return _commLink.sendFullConfigSync(config); }
 
 const SP::TelemetryPacket& DataManager::getTelemetry() const { return _model.getTelemetry(); }
 const SP::SensorPacket& DataManager::getSensors() const { return _model.getSensors(); }
@@ -148,6 +128,12 @@ int32_t DataManager::getConfig(uint8_t index) const { return _model.getConfig(in
 bool DataManager::hasFullConfig() const { return _model.hasFullConfig(); }
 const SP::FullConfigPacket& DataManager::getFullConfig() const { return _model.getFullConfig(); }
 void DataManager::invalidateFullConfig() { _model.invalidateFullConfig(); }
+
+bool DataManager::hasValidStats() const { return _model.hasValidStats(); }
+void DataManager::invalidateStats() { _model.invalidateStats(); }
+
+bool DataManager::hasValidSensors() const { return _model.hasValidSensors(); }
+void DataManager::invalidateSensors() { _model.invalidateSensors(); }
 
 uint8_t DataManager::getTargetShuttleID() const { return _model.getTargetShuttleID(); }
 void DataManager::setPollingMode(PollingMode mode) { _pollingMode = mode; }
@@ -184,4 +170,3 @@ uint8_t DataManager::getRadioChannel() const { return _radioChannel; }
 bool DataManager::isConnected() const { return _model.isConnected(); }
 bool DataManager::isWaitingForAck() const { return _commLink.isWaitingForAck(); }
 bool DataManager::isCharging() const { return _isCharging; }
-bool DataManager::isQueueFull() const { return _commLink.isQueueFull(); }

@@ -40,6 +40,12 @@ public:
     const SP::FullConfigPacket& getFullConfig() const;
     void invalidateFullConfig();
     
+    bool hasValidStats() const;
+    void invalidateStats();
+    
+    bool hasValidSensors() const;
+    void invalidateSensors();
+    
     uint8_t getTargetShuttleID() const;
     int getRemoteBatteryLevel() const;
     uint8_t getRadioChannel() const;
@@ -54,8 +60,6 @@ public:
     void setManualMoveMode(bool isMoving);
     void setRemoteBatteryLevel(int level, bool isCharging);
     void setRadioChannel(uint8_t ch);
-
-    bool isQueueFull() const;
 
 private:
     DataManager();

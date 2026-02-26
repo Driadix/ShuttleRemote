@@ -7,7 +7,7 @@
 #include "DebugUtils.h"
 
 DashboardScreen::DashboardScreen()
-    : _isManualMoving(false), _manualCommand(" "), _queueFullTimer(0), _showQueueFull(false), 
+    : _isManualMoving(false), _manualCommand(" "), 
       _tempShuttleNum(1), _isSelectingShuttle(false), _blinkState(false), _shuttleSelectTimer(0), _lastBlinkTick(0),
       _animX(0), _animFlagX(0), _lastAnimTick(0), _actionMsg(""), _actionStatus(""), _actionMsgTimer(0) {
 }
@@ -30,10 +30,6 @@ void DashboardScreen::onEvent(SystemEvent event) {
         event == SystemEvent::BATTERY_LOW ||
         event == SystemEvent::CONNECTION_LOST || 
         event == SystemEvent::CONNECTION_RESTORED) {
-        setDirty();
-    } else if (event == SystemEvent::QUEUE_FULL) {
-        _showQueueFull = true;
-        _queueFullTimer = millis();
         setDirty();
     } else if (event == SystemEvent::CMD_DISPATCHED) {
         SP::CmdType cmd = DataManager::getInstance().getLastUserCommandType();
@@ -84,9 +80,7 @@ void DashboardScreen::draw(U8G2& display) {
             display.drawUTF8(0, 25, buf);
         }
 
-        if (_showQueueFull) {
-            display.drawUTF8(0, 40, TXT_QUEUE_FULL);
-        } else if (cachedTelemetry.errorCode) {
+        if (cachedTelemetry.errorCode) {
             if (cachedTelemetry.errorCode < 16) {
                  snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
                  display.drawUTF8(0, 40, buf);
@@ -147,8 +141,6 @@ void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket
 }
 
 void DashboardScreen::handleInput(InputEvent event) {
-    bool success = true;
-
     if (!DataManager::getInstance().isConnected()) {
         if (event != InputEvent::BACK_PRESS && 
             event != InputEvent::KEY_A_PRESS && 
@@ -159,64 +151,46 @@ void DashboardScreen::handleInput(InputEvent event) {
             event != InputEvent::KEY_4_PRESS &&
             event != InputEvent::OK_SHORT_PRESS &&
             event != InputEvent::OK_LONG_PRESS) {
-            
-            _showQueueFull = true; 
-            _queueFullTimer = millis();
-            setDirty();
             return; 
         }
     }
 
+    // Commands fire instantly over the preemptive link
     switch(event) {
         case InputEvent::UP_PRESS: // '8'
             if (!_isManualMoving) {
-                if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN)) {
-                    _manualCommand = ">>";
-                    _isManualMoving = true;
-                } else success = false;
+                DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN);
+                _manualCommand = ">>";
+                _isManualMoving = true;
             }
             break;
 
         case InputEvent::DOWN_PRESS: // '0'
             if (!_isManualMoving) {
-                if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN)) {
-                    _manualCommand = "<<";
-                    _isManualMoving = true;
-                } else success = false;
+                DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN);
+                _manualCommand = "<<";
+                _isManualMoving = true;
             }
             break;
 
         case InputEvent::STOP_PRESS:
         case InputEvent::MANUAL_MODE_PRESS:
              if (_isManualMoving) {
-                 if (DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL)) {
-                     _manualCommand = " ";
-                     _isManualMoving = false;
-                 } else success = false;
+                 DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL);
+                 _manualCommand = " ";
+                 _isManualMoving = false;
              } else {
                  if (event == InputEvent::MANUAL_MODE_PRESS) DataManager::getInstance().sendCommand(SP::CMD_MANUAL_MODE);
                  else DataManager::getInstance().sendCommand(SP::CMD_STOP);
              }
              break;
 
-        case InputEvent::LIFT_UP_PRESS: 
-            if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP)) success = false;
-            break;
-        case InputEvent::LIFT_DOWN_PRESS: 
-            if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN)) success = false;
-            break;
-        case InputEvent::LOAD_PRESS: 
-             if (!DataManager::getInstance().sendCommand(SP::CMD_LOAD)) success = false;
-             break;
-        case InputEvent::LONG_LOAD_PRESS:
-             if (!DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD)) success = false;
-             break;
-        case InputEvent::UNLOAD_PRESS: 
-             if (!DataManager::getInstance().sendCommand(SP::CMD_UNLOAD)) success = false;
-             break;
-        case InputEvent::LONG_UNLOAD_PRESS:
-             if (!DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD)) success = false;
-             break;
+        case InputEvent::LIFT_UP_PRESS: DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP); break;
+        case InputEvent::LIFT_DOWN_PRESS: DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN); break;
+        case InputEvent::LOAD_PRESS: DataManager::getInstance().sendCommand(SP::CMD_LOAD); break;
+        case InputEvent::LONG_LOAD_PRESS: DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD); break;
+        case InputEvent::UNLOAD_PRESS: DataManager::getInstance().sendCommand(SP::CMD_UNLOAD); break;
+        case InputEvent::LONG_UNLOAD_PRESS: DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD); break;
 
         case InputEvent::BACK_PRESS: // '7'
             ScreenManager::getInstance().push(&operatorMenuScreen);
@@ -255,12 +229,6 @@ void DashboardScreen::handleInput(InputEvent event) {
              break;
         default: break;
     }
-
-    if (!success) {
-        _showQueueFull = true;
-        _queueFullTimer = millis();
-        setDirty();
-    }
 }
 
 void DashboardScreen::tick() {
@@ -276,11 +244,6 @@ void DashboardScreen::tick() {
             lastSearchBlink = millis();
             setDirty();
         }
-    }
-
-    if (_showQueueFull && millis() - _queueFullTimer > 2000) {
-        _showQueueFull = false;
-        setDirty();
     }
 
     if (_actionMsg.length() > 0) {

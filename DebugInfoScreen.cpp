@@ -7,6 +7,7 @@ DebugInfoScreen::DebugInfoScreen() : _pageIndex(0), _lastAnimTick(0), _animState
 void DebugInfoScreen::onEnter() {
     _pageIndex = 0;
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::CUSTOM_DATA);
+    DataManager::getInstance().invalidateSensors(); // Request fresh data
     EventBus::subscribe(this);
 }
 
@@ -15,18 +16,21 @@ void DebugInfoScreen::onExit() {
 }
 
 void DebugInfoScreen::onEvent(SystemEvent event) {
-    if (event == SystemEvent::SENSORS_UPDATED) {
+    if (event == SystemEvent::SENSORS_UPDATED || event == SystemEvent::CONNECTION_LOST) {
         setDirty();
     }
 }
 
-void DebugInfoScreen::draw(U8G2& display) {
+bool DebugInfoScreen::hasValidData() const {
+    return DataManager::getInstance().hasValidSensors();
+}
+
+void DebugInfoScreen::drawData(U8G2& display) {
     const SP::SensorPacket& sensors = DataManager::getInstance().getSensors();
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
-    // drawStr converted to drawUTF8 for Cyrillic support!
     if (_pageIndex == 0) {
         char buf[64];
         snprintf(buf, sizeof(buf), "Канал впред: %u", sensors.distanceF);

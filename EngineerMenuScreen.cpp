@@ -8,6 +8,10 @@ EngineerMenuScreen::EngineerMenuScreen()
 
 void EngineerMenuScreen::onEnter() {
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
+    // Quietly pre-fetch configuration so it's ready if they enter the editor
+    if (!DataManager::getInstance().hasFullConfig()) {
+        DataManager::getInstance().requestFullConfig();
+    }
 }
 
 void EngineerMenuScreen::provideMenuItem(uint8_t index, char* buffer) {

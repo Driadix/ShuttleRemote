@@ -21,8 +21,6 @@ private:
     StatusBarWidget _statusBar;
     bool _isManualMoving;
     String _manualCommand;
-    uint32_t _queueFullTimer;
-    bool _showQueueFull;
 
     uint8_t _tempShuttleNum;
     bool _isSelectingShuttle;

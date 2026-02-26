@@ -6,34 +6,36 @@
 SP::FullConfigPacket ConfigEditorScreen::_localConfig;
 
 ConfigEditorScreen::ConfigEditorScreen() 
-    : _menuList(ConfigEditorScreen::provideMenuItem, ITEM_COUNT, 5), _isLoading(false), _requestTimer(0) {}
+    : _menuList(ConfigEditorScreen::provideMenuItem, ITEM_COUNT, 5), _requestTimer(0) {}
 
 void ConfigEditorScreen::onEnter() {
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     if (!DataManager::getInstance().hasFullConfig()) {
-        _isLoading = true;
         _requestTimer = millis();
         DataManager::getInstance().requestFullConfig();
     } else {
         _localConfig = DataManager::getInstance().getFullConfig();
-        _isLoading = false;
     }
     EventBus::subscribe(this);
 }
 
 void ConfigEditorScreen::onExit() {
     EventBus::unsubscribe(this);
+    // Force refetch on next engineer menu entry
+    DataManager::getInstance().invalidateFullConfig(); 
 }
 
 void ConfigEditorScreen::onEvent(SystemEvent event) {
-    if (event == SystemEvent::CONFIG_UPDATED && _isLoading) {
+    if (event == SystemEvent::CONFIG_UPDATED) {
         _localConfig = DataManager::getInstance().getFullConfig();
-        _isLoading = false;
         setDirty();
-    } else if (event == SystemEvent::CONNECTION_LOST && _isLoading) {
-        _isLoading = false; 
+    } else if (event == SystemEvent::CONNECTION_LOST) {
         setDirty();
     }
+}
+
+bool ConfigEditorScreen::hasValidData() const {
+    return DataManager::getInstance().hasFullConfig();
 }
 
 void ConfigEditorScreen::provideMenuItem(uint8_t index, char* buffer) {
@@ -118,19 +120,10 @@ void ConfigEditorScreen::adjustValue(int idx, bool increase) {
     setDirty();
 }
 
-void ConfigEditorScreen::draw(U8G2& display) {
+void ConfigEditorScreen::drawData(U8G2& display) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
-
-    if (_isLoading) {
-        if (!DataManager::getInstance().isConnected()) {
-            display.drawUTF8(10, 30, "ОШИБКА: НЕТ СВЯЗИ");
-        } else {
-            display.drawUTF8(20, 30, "Загрузка ПЗУ...");
-        }
-    } else {
-        _menuList.draw(display, 0, 0);
-    }
+    _menuList.draw(display, 0, 0);
 }
 
 void ConfigEditorScreen::handleInput(InputEvent event) {
@@ -139,7 +132,7 @@ void ConfigEditorScreen::handleInput(InputEvent event) {
         return;
     }
 
-    if (_isLoading) return; // Block input while loading
+    if (!hasValidData()) return; 
 
     int idx = _menuList.getCursorIndex();
     bool decrease = (event == InputEvent::LEFT_PRESS || event == InputEvent::KEY_B_PRESS);
@@ -168,10 +161,10 @@ void ConfigEditorScreen::handleInput(InputEvent event) {
 }
 
 void ConfigEditorScreen::tick() {
-    if (_isLoading && millis() - _requestTimer > 3000) {
+    if (!hasValidData() && millis() - _requestTimer > 3000) {
         if (DataManager::getInstance().isConnected()) {
              _requestTimer = millis();
-             DataManager::getInstance().requestFullConfig(); // Auto-retry
+             DataManager::getInstance().requestFullConfig(); 
         }
     }
 }

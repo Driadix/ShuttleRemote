@@ -30,6 +30,12 @@ public:
 
     bool hasFullConfig() const { return _hasFullConfig; }
     void invalidateFullConfig() { _hasFullConfig = false; }
+    
+    bool hasValidStats() const { return _hasValidStats; }
+    void invalidateStats() { _hasValidStats = false; }
+    
+    bool hasValidSensors() const { return _hasValidSensors; }
+    void invalidateSensors() { _hasValidSensors = false; }
 
 private:
     SP::TelemetryPacket _telemetry;
@@ -41,5 +47,9 @@ private:
     uint8_t _targetShuttleID;
     uint32_t _lastRxTime;
     bool _isConnected;
+    
+    // Freshness Trackers
     bool _hasFullConfig;
+    bool _hasValidStats;
+    bool _hasValidSensors;
 };

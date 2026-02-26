@@ -6,6 +6,7 @@ StatsScreen::StatsScreen() {}
 
 void StatsScreen::onEnter() {
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::CUSTOM_DATA);
+    DataManager::getInstance().invalidateStats(); // Request fresh data
     EventBus::subscribe(this);
 }
 
@@ -14,12 +15,16 @@ void StatsScreen::onExit() {
 }
 
 void StatsScreen::onEvent(SystemEvent event) {
-    if (event == SystemEvent::STATS_UPDATED) {
+    if (event == SystemEvent::STATS_UPDATED || event == SystemEvent::CONNECTION_LOST) {
         setDirty();
     }
 }
 
-void StatsScreen::draw(U8G2& display) {
+bool StatsScreen::hasValidData() const {
+    return DataManager::getInstance().hasValidStats();
+}
+
+void StatsScreen::drawData(U8G2& display) {
     const auto& stats = DataManager::getInstance().getStats();
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
@@ -49,6 +54,7 @@ void StatsScreen::handleInput(InputEvent event) {
 
 void StatsScreen::tick() {
     static uint32_t lastPoll = 0;
+    // Fire and forget polling
     if (millis() - lastPoll > 1000) {
         lastPoll = millis();
         DataManager::getInstance().sendRequest(SP::MSG_REQ_STATS);

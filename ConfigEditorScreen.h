@@ -1,25 +1,27 @@
 #pragma once
-#include "Screen.h"
+#include "DataScreen.h"
 #include "ScrollingListWidget.h"
 #include "DataManager.h"
 #include "EventBus.h"
 
-class ConfigEditorScreen : public Screen {
+class ConfigEditorScreen : public DataScreen {
 public:
     ConfigEditorScreen();
 
-    virtual void draw(U8G2& display) override;
     virtual void handleInput(InputEvent event) override;
     virtual void tick() override;
     virtual void onEnter() override;
     virtual void onExit() override;
     virtual void onEvent(SystemEvent event) override;
 
-    static SP::FullConfigPacket _localConfig; // Single static instance for local RAM edits
+    static SP::FullConfigPacket _localConfig; 
+
+protected:
+    virtual bool hasValidData() const override;
+    virtual void drawData(U8G2& display) override;
 
 private:
     ScrollingListWidget _menuList;
-    bool _isLoading;
     uint32_t _requestTimer;
 
     static const int ITEM_COUNT = 13;
