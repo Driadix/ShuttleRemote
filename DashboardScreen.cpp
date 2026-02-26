@@ -25,9 +25,12 @@ void DashboardScreen::onExit() {
 }
 
 void DashboardScreen::onEvent(SystemEvent event) {
+    // Note the addition of CONNECTION_LOST and CONNECTION_RESTORED
     if (event == SystemEvent::TELEMETRY_UPDATED ||
         event == SystemEvent::ERROR_OCCURRED ||
-        event == SystemEvent::BATTERY_LOW) {
+        event == SystemEvent::BATTERY_LOW ||
+        event == SystemEvent::CONNECTION_LOST || 
+        event == SystemEvent::CONNECTION_RESTORED) {
         setDirty();
     } else if (event == SystemEvent::QUEUE_FULL) {
         _showQueueFull = true;
@@ -63,52 +66,52 @@ void DashboardScreen::draw(U8G2& display) {
     char buf[64];
     bool connected = DataManager::getInstance().isConnected();
 
+    // ALL drawStr calls have been upgraded to drawUTF8 for Cyrillic support!
     if (!connected) {
         if ((millis() / 500) % 2 == 0) {
-            display.drawStr(15, 35, "Поиск шаттла...");
+            display.drawUTF8(15, 35, "Поиск шаттла...");
         }
     } else {
         const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
 
         if (cachedTelemetry.shuttleStatus == 13) {
             snprintf(buf, sizeof(buf), TXT_LEFT_TO_UNLOAD, cachedTelemetry.palleteCount);
-            display.drawStr(0, 25, buf);
+            display.drawUTF8(0, 25, buf);
         }
         else if (cachedTelemetry.shuttleStatus < 19) {
-            display.drawStr(0, 25, SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
+            display.drawUTF8(0, 25, SHUTTLE_STATUS_STRINGS[cachedTelemetry.shuttleStatus]);
         }
         else {
             snprintf(buf, sizeof(buf), "Status: %d", cachedTelemetry.shuttleStatus);
-            display.drawStr(0, 25, buf);
+            display.drawUTF8(0, 25, buf);
         }
 
         if (_showQueueFull) {
-            display.drawStr(0, 40, TXT_QUEUE_FULL);
+            display.drawUTF8(0, 40, TXT_QUEUE_FULL);
         } else if (cachedTelemetry.errorCode) {
             if (cachedTelemetry.errorCode < 16) {
                  snprintf(buf, sizeof(buf), "! %s !", ERROR_STRINGS[cachedTelemetry.errorCode]);
-                 display.drawStr(0, 40, buf);
+                 display.drawUTF8(0, 40, buf);
             }
             else {
                  snprintf(buf, sizeof(buf), TXT_ERR_PREFIX, cachedTelemetry.errorCode);
-                 display.drawStr(0, 40, buf);
+                 display.drawUTF8(0, 40, buf);
             }
         }
 
         if (_isManualMoving) {
-            display.drawStr(85, 40, _manualCommand.c_str());
+            display.drawUTF8(85, 40, _manualCommand.c_str());
         }
 
         if (_actionMsg.length() > 0) {
             char actionBuf[64];
             snprintf(actionBuf, sizeof(actionBuf), "%s %s", _actionMsg.c_str(), _actionStatus.c_str());
-            display.drawStr(0, 52, actionBuf);
+            display.drawUTF8(0, 52, actionBuf);
         }
 
         drawShuttleStatus(display, cachedTelemetry);
     }
 
-    // Bottom Indicator
     display.setFont(u8g2_font_10x20_t_cyrillic);
     uint8_t shtNumToDraw = _isSelectingShuttle ? _tempShuttleNum : DataManager::getInstance().getTargetShuttleID();
     
@@ -119,7 +122,7 @@ void DashboardScreen::draw(U8G2& display) {
 
     if (!_isSelectingShuttle || _blinkState) {
         snprintf(buf, sizeof(buf), "|%d|", shtNumToDraw);
-        display.drawStr(xOffset, 63, buf);
+        display.drawUTF8(xOffset, 63, buf);
     }
 }
 
@@ -155,7 +158,6 @@ void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket
 void DashboardScreen::handleInput(InputEvent event) {
     bool success = true;
 
-    // Safety Interlock - Block operational commands if disconnected
     if (!DataManager::getInstance().isConnected()) {
         if (event != InputEvent::BACK_PRESS && 
             event != InputEvent::KEY_A_PRESS && 
@@ -285,6 +287,15 @@ void DashboardScreen::tick() {
     if (_statusBar.needsRedraw()) {
         setDirty();
         _statusBar.clearDirty();
+    }
+
+    // Force periodic UI updates when disconnected to keep the text blinking!
+    if (!DataManager::getInstance().isConnected()) {
+        static uint32_t lastSearchBlink = 0;
+        if (millis() - lastSearchBlink > 500) {
+            lastSearchBlink = millis();
+            setDirty();
+        }
     }
 
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {

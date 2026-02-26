@@ -27,18 +27,17 @@ void StatsScreen::draw(U8G2& display) {
 
     char buf[64];
 
-    // Shifted layout up by ~15 pixels since the status bar is gone, and added Localization
     snprintf(buf, sizeof(buf), "Путь:   %-6lu м", (unsigned long)(stats.totalDist / 1000));
-    display.drawStr(0, 10, buf);
+    display.drawUTF8(0, 10, buf);
 
     snprintf(buf, sizeof(buf), "Циклы:  %-6lu", (unsigned long)stats.loadCounter);
-    display.drawStr(0, 25, buf);
+    display.drawUTF8(0, 25, buf);
 
     snprintf(buf, sizeof(buf), "Аварии: %-5u", stats.crashCount);
-    display.drawStr(0, 40, buf);
+    display.drawUTF8(0, 40, buf);
 
     snprintf(buf, sizeof(buf), "Время:  %-6lu м", (unsigned long)stats.totalUptimeMinutes);
-    display.drawStr(0, 55, buf);
+    display.drawUTF8(0, 55, buf);
 }
 
 void StatsScreen::handleInput(InputEvent event) {

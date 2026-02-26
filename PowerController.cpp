@@ -10,6 +10,7 @@ bool PowerController::_preventSleep = false;
 int PowerController::_batteryPin = -1;
 int PowerController::_chargePin = -1;
 unsigned long PowerController::_lastBatteryCheck = 0;
+unsigned long PowerController::_lastChargeCheck = 0;
 int PowerController::_chargerCount = 0;
 int PowerController::_battIndicator = 0;
 
@@ -22,6 +23,8 @@ void PowerController::init(int batteryPin, int chargePin) {
     pinMode(_chargePin, INPUT);
 
     _lastActivityTime = millis();
+    _lastBatteryCheck = millis();
+    _lastChargeCheck = millis();
     
     // Release holds from previous sleep state
     rtc_gpio_init((gpio_num_t)13);
@@ -67,42 +70,56 @@ void PowerController::init(int batteryPin, int chargePin) {
 }
 
 void PowerController::tick() {
-    // Battery Monitor
-    if (_batteryPin != -1 && millis() - _lastBatteryCheck > 500) {
-        _lastBatteryCheck = millis();
+    uint32_t now = millis();
 
-        bool isCharging = false;
-        if (!digitalRead(_chargePin)) {
-            _chargerCount = 8;
+    // 1. FAST Charger Detection (100ms polling, 300ms debounce)
+    if (_chargePin != -1 && now - _lastChargeCheck > 100) {
+        _lastChargeCheck = now;
+
+        bool currentChargeSignal = !digitalRead(_chargePin);
+        
+        if (currentChargeSignal) {
+            _chargerCount++;
+            if (_chargerCount > 3) _chargerCount = 3; // 300ms confirmation
         } else {
             _chargerCount--;
-            if (_chargerCount <= 0) _chargerCount = 0;
+            if (_chargerCount < 0) _chargerCount = 0;
         }
 
-        if (_chargerCount > 0) {
-            isCharging = true;
-        }
-
+        bool isCharging = (_chargerCount > 0);
+        
         static bool lastChargingState = false;
         if (isCharging != lastChargingState) {
              LOG_D("PWR", "Charging state changed: %s", isCharging ? "CHARGING" : "DISCHARGING");
              lastChargingState = isCharging;
+             
+             // Immediately broadcast the new state with the last known battery level
+             DataManager::getInstance().setRemoteBatteryLevel(_battIndicator, isCharging);
         }
+    }
 
+    // 2. SLOW Battery ADC Reading (5 Seconds)
+    if (_batteryPin != -1 && now - _lastBatteryCheck > 5000) {
+        _lastBatteryCheck = now;
+        
         int raw = analogRead(_batteryPin);
         int volt = map(raw, 740, 1100, 0, 100);
         if (volt < 0) volt = 0;
         else if (volt > 100) volt = 100;
+        
+        _battIndicator = volt;
 
-        DataManager::getInstance().setRemoteBatteryLevel(volt, isCharging);
+        bool isCharging = (_chargerCount > 0);
+        DataManager::getInstance().setRemoteBatteryLevel(_battIndicator, isCharging);
     }
 
+    // 3. Sleep Management
     if (_preventSleep) {
-        _lastActivityTime = millis();
+        _lastActivityTime = now;
         return;
     }
     
-    if (millis() - _lastActivityTime > _sleepThreshold) {
+    if (now - _lastActivityTime > _sleepThreshold) {
         enterDeepSleep();
     }
 }
@@ -120,7 +137,7 @@ void PowerController::preventSleep(bool prevent) {
 
 void PowerController::enterDeepSleep() {
     LOG_I("PWR", "Initiating deep sleep. Holding power pins...");
-    // Configure pins for sleep state
+    
     rtc_gpio_init((gpio_num_t)13);
     rtc_gpio_set_direction((gpio_num_t)13, RTC_GPIO_MODE_OUTPUT_ONLY);
     rtc_gpio_set_level((gpio_num_t)13, 1);
@@ -161,7 +178,6 @@ void PowerController::enterDeepSleep() {
     gpio_set_pull_mode((gpio_num_t)33, GPIO_PULLDOWN_ONLY);
     gpio_hold_en((gpio_num_t)33);
     
-    // rfout0 handling
     pinMode(PIN_RFOUT0, OUTPUT);
     digitalWrite(PIN_RFOUT0, LOW);
     gpio_hold_en((gpio_num_t)PIN_RFOUT0);

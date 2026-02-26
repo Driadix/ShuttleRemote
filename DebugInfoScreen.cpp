@@ -26,25 +26,24 @@ void DebugInfoScreen::draw(U8G2& display) {
     display.setFont(u8g2_font_6x13_t_cyrillic);
     display.setDrawColor(1);
 
-    // Everything is shifted up since the status bar is gone
+    // drawStr converted to drawUTF8 for Cyrillic support!
     if (_pageIndex == 0) {
         char buf[64];
         snprintf(buf, sizeof(buf), "Канал впред: %u", sensors.distanceF);
-        display.drawStr(2, 10, buf);
+        display.drawUTF8(2, 10, buf);
 
         snprintf(buf, sizeof(buf), "Канал назад: %u", sensors.distanceR);
-        display.drawStr(2, 22, buf);
+        display.drawUTF8(2, 22, buf);
 
         snprintf(buf, sizeof(buf), "Паллет впред: %u", sensors.distancePltF);
-        display.drawStr(2, 34, buf);
+        display.drawUTF8(2, 34, buf);
 
         snprintf(buf, sizeof(buf), "Паллет назад: %u", sensors.distancePltR);
-        display.drawStr(2, 46, buf);
+        display.drawUTF8(2, 46, buf);
 
         snprintf(buf, sizeof(buf), "Энкодер угл: %u", sensors.angle);
-        display.drawStr(2, 58, buf);
+        display.drawUTF8(2, 58, buf);
 
-        // Simple activity indicator at the top right
         display.setCursor(120, 10);
         if (_animState == 0) display.print("-");
         else if (_animState == 1) display.print("\\");
@@ -56,14 +55,13 @@ void DebugInfoScreen::draw(U8G2& display) {
             char buf[64];
             if (i == 0) snprintf(buf, sizeof(buf), "%d DATCHIK_F1", state);
             else snprintf(buf, sizeof(buf), "%d SENSOR_%d", state, i);
-            display.drawStr(2, 10 + i*10, buf); // Shifted up
+            display.drawUTF8(2, 10 + i*10, buf);
         }
     }
 
-    // Page indicator
     char pageBuf[8];
     snprintf(pageBuf, sizeof(pageBuf), "%d/2", _pageIndex + 1);
-    display.drawStr(100, 60, pageBuf);
+    display.drawUTF8(100, 60, pageBuf);
 }
 
 void DebugInfoScreen::handleInput(InputEvent event) {

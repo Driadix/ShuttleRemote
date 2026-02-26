@@ -32,7 +32,7 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
         display.print(TXT_FIFO);
     }
 
-    // 4. Remote Controller Battery Icon (Animated if charging)
+    // 4. Remote Controller Battery Icon 
     int percent = DataManager::getInstance().getRemoteBatteryLevel();
     bool charging = DataManager::getInstance().isCharging();
     
@@ -49,18 +49,24 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
         else if (percent > 7)  width = 2;
     }
     
-    // Draw Battery Outline
     display.drawFrame(x + 107, y + 1, 18, 10);
-    display.drawBox(x + 125, y + 4, 2, 4); // Tip
+    display.drawBox(x + 125, y + 4, 2, 4);
     
-    // Fill Battery Level
     if (width > 0) {
         display.drawBox(x + 109, y + 3, width, 6);
     }
 }
 
 void StatusBarWidget::tick() {
-    if (DataManager::getInstance().isCharging()) {
+    bool isCharging = DataManager::getInstance().isCharging();
+    
+    static bool lastCharging = false;
+    if (isCharging != lastCharging) {
+        lastCharging = isCharging;
+        setDirty();
+    }
+
+    if (isCharging) {
         if (millis() - _lastChargeAnimTick > 500) {
             _lastChargeAnimTick = millis();
             _chargeAnimFrame++;
@@ -68,6 +74,6 @@ void StatusBarWidget::tick() {
             setDirty();
         }
     } else {
-        _chargeAnimFrame = 4; // Full by default or last state? Let's say full so it looks nice if momentarily checked
+        _chargeAnimFrame = 4;
     }
 }

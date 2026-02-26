@@ -20,8 +20,9 @@ private:
     static int _batteryPin;
     static int _chargePin;
     static unsigned long _lastBatteryCheck;
+    static unsigned long _lastChargeCheck;
     static int _chargerCount;
-    static int _battIndicator; // Legacy animator state
+    static int _battIndicator; 
 };
 
 #endif // POWER_CONTROLLER_H
