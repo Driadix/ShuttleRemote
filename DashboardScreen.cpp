@@ -25,7 +25,6 @@ void DashboardScreen::onExit() {
 }
 
 void DashboardScreen::onEvent(SystemEvent event) {
-    // Note the addition of CONNECTION_LOST and CONNECTION_RESTORED
     if (event == SystemEvent::TELEMETRY_UPDATED ||
         event == SystemEvent::ERROR_OCCURRED ||
         event == SystemEvent::BATTERY_LOW ||
@@ -66,7 +65,6 @@ void DashboardScreen::draw(U8G2& display) {
     char buf[64];
     bool connected = DataManager::getInstance().isConnected();
 
-    // ALL drawStr calls have been upgraded to drawUTF8 for Cyrillic support!
     if (!connected) {
         if ((millis() / 500) % 2 == 0) {
             display.drawUTF8(15, 35, "Поиск шаттла...");
@@ -116,9 +114,7 @@ void DashboardScreen::draw(U8G2& display) {
     uint8_t shtNumToDraw = _isSelectingShuttle ? _tempShuttleNum : DataManager::getInstance().getTargetShuttleID();
     
     int xOffset = 30 * (shtNumToDraw - 1);
-    if (shtNumToDraw > 4) {
-        xOffset = 100;
-    }
+    if (shtNumToDraw > 4) xOffset = 100;
 
     if (!_isSelectingShuttle || _blinkState) {
         snprintf(buf, sizeof(buf), "|%d|", shtNumToDraw);
@@ -127,25 +123,20 @@ void DashboardScreen::draw(U8G2& display) {
 }
 
 void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket& cachedTelemetry) {
-    if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6)
-    {
+    if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6) {
         display.drawBox(_animX, 40, 28, 5);
         display.drawBox(_animX + 4, 45, 3, 2);
         display.drawBox(_animX + 21, 45, 3, 2);
-
         if (_animFlagX == 1) {
             display.drawBox(_animX, 34, 28, 3);
             display.drawBox(_animX, 37, 3, 3);
             display.drawBox(_animX + 13, 37, 3, 3);
             display.drawBox(_animX + 25, 37, 3, 3);
         }
-    }
-    else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12)
-    {
+    } else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12) {
         display.drawBox(_animX, 40, 28, 5);
         display.drawBox(_animX + 4, 45, 3, 2);
         display.drawBox(_animX + 21, 45, 3, 2);
-
         if (_animFlagX == 0) {
             display.drawBox(_animX, 34, 28, 3);
             display.drawBox(_animX, 37, 3, 3);
@@ -182,7 +173,7 @@ void DashboardScreen::handleInput(InputEvent event) {
                 if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_RIGHT_MAN)) {
                     _manualCommand = ">>";
                     _isManualMoving = true;
-                } else { success = false; }
+                } else success = false;
             }
             break;
 
@@ -191,39 +182,36 @@ void DashboardScreen::handleInput(InputEvent event) {
                 if (DataManager::getInstance().sendCommand(SP::CMD_MOVE_LEFT_MAN)) {
                     _manualCommand = "<<";
                     _isManualMoving = true;
-                } else { success = false; }
+                } else success = false;
             }
             break;
 
-        case InputEvent::STOP_PRESS: // '6'
+        case InputEvent::STOP_PRESS:
         case InputEvent::MANUAL_MODE_PRESS:
              if (_isManualMoving) {
                  if (DataManager::getInstance().sendCommand(SP::CMD_STOP_MANUAL)) {
                      _manualCommand = " ";
                      _isManualMoving = false;
-                 } else { success = false; }
+                 } else success = false;
              } else {
-                 if (event == InputEvent::MANUAL_MODE_PRESS) {
-                     DataManager::getInstance().sendCommand(SP::CMD_MANUAL_MODE);
-                 } else {
-                     DataManager::getInstance().sendCommand(SP::CMD_STOP);
-                 }
+                 if (event == InputEvent::MANUAL_MODE_PRESS) DataManager::getInstance().sendCommand(SP::CMD_MANUAL_MODE);
+                 else DataManager::getInstance().sendCommand(SP::CMD_STOP);
              }
              break;
 
-        case InputEvent::LIFT_UP_PRESS: // 'E'
+        case InputEvent::LIFT_UP_PRESS: 
             if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_UP)) success = false;
             break;
-        case InputEvent::LIFT_DOWN_PRESS: // '9'
+        case InputEvent::LIFT_DOWN_PRESS: 
             if (!DataManager::getInstance().sendCommand(SP::CMD_LIFT_DOWN)) success = false;
             break;
-        case InputEvent::LOAD_PRESS: // '5'
+        case InputEvent::LOAD_PRESS: 
              if (!DataManager::getInstance().sendCommand(SP::CMD_LOAD)) success = false;
              break;
         case InputEvent::LONG_LOAD_PRESS:
              if (!DataManager::getInstance().sendCommand(SP::CMD_LONG_LOAD)) success = false;
              break;
-        case InputEvent::UNLOAD_PRESS: // 'C'
+        case InputEvent::UNLOAD_PRESS: 
              if (!DataManager::getInstance().sendCommand(SP::CMD_UNLOAD)) success = false;
              break;
         case InputEvent::LONG_UNLOAD_PRESS:
@@ -231,7 +219,7 @@ void DashboardScreen::handleInput(InputEvent event) {
              break;
 
         case InputEvent::BACK_PRESS: // '7'
-            ScreenManager::getInstance().push(&mainMenuScreen);
+            ScreenManager::getInstance().push(&operatorMenuScreen);
             break;
 
         case InputEvent::OK_SHORT_PRESS:
@@ -256,26 +244,19 @@ void DashboardScreen::handleInput(InputEvent event) {
              _shuttleSelectTimer = millis();
              _blinkState = true;
              
-             if (event == InputEvent::KEY_A_PRESS) {
-                 _tempShuttleNum++;
-             } else if (event == InputEvent::KEY_B_PRESS) {
-                 _tempShuttleNum--;
-             } else {
-                 _tempShuttleNum = (int)event - (int)InputEvent::KEY_1_PRESS + 1;
-             }
+             if (event == InputEvent::KEY_A_PRESS) _tempShuttleNum++;
+             else if (event == InputEvent::KEY_B_PRESS) _tempShuttleNum--;
+             else _tempShuttleNum = (int)event - (int)InputEvent::KEY_1_PRESS + 1;
 
              if (_tempShuttleNum < 1) _tempShuttleNum = 1;
              if (_tempShuttleNum > 32) _tempShuttleNum = 32;
              
              setDirty();
              break;
-
-        default:
-            break;
+        default: break;
     }
 
     if (!success) {
-        LOG_W("UI", "Input %s ignored: Command Failed / Queue Full.", DebugUtils::getEventName(event));
         _showQueueFull = true;
         _queueFullTimer = millis();
         setDirty();
@@ -289,7 +270,6 @@ void DashboardScreen::tick() {
         _statusBar.clearDirty();
     }
 
-    // Force periodic UI updates when disconnected to keep the text blinking!
     if (!DataManager::getInstance().isConnected()) {
         static uint32_t lastSearchBlink = 0;
         if (millis() - lastSearchBlink > 500) {
@@ -336,21 +316,13 @@ void DashboardScreen::tick() {
 
         const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
         if (cachedTelemetry.shuttleStatus == 3 || cachedTelemetry.shuttleStatus == 13 || cachedTelemetry.shuttleStatus == 4 || cachedTelemetry.shuttleStatus == 6) {
-            if (_animFlagX == 0 && _animX < 128) {
-                _animX++;
-            } else {
-                _animFlagX = 1;
-                _animX--;
-            }
+            if (_animFlagX == 0 && _animX < 128) _animX++;
+            else { _animFlagX = 1; _animX--; }
             if (_animFlagX == 1 && _animX == 0) _animFlagX = 0;
             animChanged = true;
         } else if (cachedTelemetry.shuttleStatus == 2 || cachedTelemetry.shuttleStatus == 12) {
-            if (_animFlagX == 1 && _animX > 1) {
-                _animX--;
-            } else {
-                _animFlagX = 0;
-                _animX++;
-            }
+            if (_animFlagX == 1 && _animX > 1) _animX--;
+            else { _animFlagX = 0; _animX++; }
             if (_animFlagX == 0 && _animX == 127) _animFlagX = 1;
             animChanged = true;
         }

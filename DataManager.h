@@ -20,23 +20,26 @@ public:
     void tick();
     virtual void onEvent(SystemEvent event) override;
 
-    // --- Command Gateway ---
     bool sendCommand(SP::CmdType cmd, int32_t arg1 = 0, int32_t arg2 = 0);
     bool sendRequest(SP::MsgID msgId);
     
-    // --- Config Gateway ---
     bool requestConfig(SP::ConfigParamID paramID);
     bool setConfig(SP::ConfigParamID paramID, int32_t value);
-    bool requestFullConfig(); // Sync bulk params
+
+    bool requestFullConfig();
     bool pushFullConfig(const SP::FullConfigPacket& config);
 
     SP::CmdType getLastUserCommandType() const;
 
-    // --- Data Getters (Read-Only) ---
     const SP::TelemetryPacket& getTelemetry() const;
     const SP::SensorPacket& getSensors() const;
     const SP::StatsPacket& getStats() const;
     int32_t getConfig(uint8_t index) const;
+
+    bool hasFullConfig() const;
+    const SP::FullConfigPacket& getFullConfig() const;
+    void invalidateFullConfig();
+    
     uint8_t getTargetShuttleID() const;
     int getRemoteBatteryLevel() const;
     uint8_t getRadioChannel() const;
@@ -44,7 +47,6 @@ public:
     bool isWaitingForAck() const;
     bool isCharging() const;
 
-    // --- State Setters ---
     void setPollingMode(PollingMode mode);
     void setTargetShuttleID(uint8_t id);
     void saveLocalShuttleNumber(uint8_t id);

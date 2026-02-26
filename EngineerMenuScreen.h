@@ -1,11 +1,11 @@
 #pragma once
 #include "Screen.h"
-#include "NumericSpinnerWidget.h"
+#include "ScrollingListWidget.h"
 #include "DataManager.h"
 
-class ChangeShuttleNumScreen : public Screen {
+class EngineerMenuScreen : public Screen {
 public:
-    ChangeShuttleNumScreen();
+    EngineerMenuScreen();
 
     virtual void draw(U8G2& display) override;
     virtual void handleInput(InputEvent event) override;
@@ -13,5 +13,7 @@ public:
     virtual void onEnter() override;
 
 private:
-    NumericSpinnerWidget _spinner;
+    ScrollingListWidget _menuList;
+    static const int ITEM_COUNT = 7;
+    static void provideMenuItem(uint8_t index, char* buffer);
 };

@@ -9,7 +9,6 @@ InputEvent InputManager::_queuedEvent = InputEvent::NONE;
 const byte ROWS = 5;
 const byte COLS = 3;
 
-// Map from existing code
 char keys[ROWS][COLS] = {
     { '1', '2', 'A' },
     { '3', '4', 'B' },
@@ -23,17 +22,12 @@ byte colPins[COLS] = { 25, 26, 13 };
 
 Keypad kpd = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-// Internal state
 static unsigned long buttonTimer = 0;
 static bool longPressActive = false;
 static const unsigned long longPressThreshold = 1000;
 static char activeKey = 0;
 
-void InputManager::init() {
-    // Keypad initialized by constructor
-    // Set hold time to match our threshold if we were using listener, but we are polling manually
-    // kpd.setHoldTime(longPressThreshold); 
-}
+void InputManager::init() {}
 
 static InputEvent mapKeyToEvent(char key, bool isLong) {
     if (isLong) {
@@ -48,26 +42,25 @@ static InputEvent mapKeyToEvent(char key, bool isLong) {
         switch (key) {
             case '8': return InputEvent::UP_PRESS;
             case '0': return InputEvent::DOWN_PRESS;
+            case '9': return InputEvent::LEFT_PRESS;  // Left Arrow
+            case 'E': return InputEvent::RIGHT_PRESS; // Right Arrow
             case 'D': return InputEvent::OK_SHORT_PRESS;
             case '7': return InputEvent::BACK_PRESS;
             case '6': return InputEvent::STOP_PRESS;
             case '5': return InputEvent::LOAD_PRESS;
             case 'C': return InputEvent::UNLOAD_PRESS;
-            case '9': return InputEvent::LIFT_DOWN_PRESS;
-            case 'E': return InputEvent::LIFT_UP_PRESS;
             case '1': return InputEvent::KEY_1_PRESS;
             case '2': return InputEvent::KEY_2_PRESS;
             case '3': return InputEvent::KEY_3_PRESS;
             case '4': return InputEvent::KEY_4_PRESS;
-            case 'A': return InputEvent::KEY_A_PRESS;
-            case 'B': return InputEvent::KEY_B_PRESS;
+            case 'A': return InputEvent::KEY_A_PRESS; // Top Arrow
+            case 'B': return InputEvent::KEY_B_PRESS; // Bottom Arrow
             default: return InputEvent::NONE;
         }
     }
 }
 
 void InputManager::update() {
-    // Scan keys
     if (kpd.getKeys()) {
         for (int i = 0; i < LIST_MAX; i++) {
             if (kpd.key[i].stateChanged) {
@@ -78,24 +71,19 @@ void InputManager::update() {
                         buttonTimer = millis();
                         longPressActive = false;
                         break;
-                        
                     case RELEASED:
                         if (key == activeKey) {
                             if (!longPressActive) {
-                                // It was a short press
                                 _queuedEvent = mapKeyToEvent(key, false);
                                 if (_queuedEvent != InputEvent::NONE) {
                                     LOG_D("INPUT", "Key Event Queued: %s", DebugUtils::getEventName(_queuedEvent));
                                 }
                             }
-                            // Reset state
                             activeKey = 0;
                             longPressActive = false;
                         }
                         break;
-                        
-                    default:
-                        break;
+                    default: break;
                 }
             }
         }

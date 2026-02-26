@@ -46,9 +46,7 @@ void DataManager::tick() {
     _commLink.tick();
 
     uint32_t now = millis();
-
-    uint32_t timeoutLimit = 2000;
-    if (_pollingMode == PollingMode::IDLE_KEEPALIVE) timeoutLimit = 6000;
+    uint32_t timeoutLimit = (_pollingMode == PollingMode::IDLE_KEEPALIVE) ? 6000 : 2000;
 
     if (_model.isConnected() && (now - _model.getLastRxTime() > timeoutLimit)) {
         _model.setConnected(false);
@@ -56,9 +54,7 @@ void DataManager::tick() {
         EventBus::publish(SystemEvent::CONNECTION_LOST);
     }
 
-    if (_pollingMode == PollingMode::CUSTOM_DATA) {
-        return;
-    }
+    if (_pollingMode == PollingMode::CUSTOM_DATA) return;
 
     if (_isManualMoving) {
         if (now - _manualHeartbeatTimer >= 200) {
@@ -75,17 +71,13 @@ void DataManager::tick() {
             _lastHeartbeatTimer = now;
             if (!_commLink.hasPendingHeartbeat()) {
                 _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT);
-                LOG_D("DATA", "Heartbeat queued. Interval: %d ms", pollInterval);
             }
         }
     }
 }
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
-    if (!_model.isConnected()) {
-        LOG_W("DATA", "Interlock: Command %d blocked. Disconnected.", (int)cmd);
-        return false; 
-    }
+    if (!_model.isConnected()) return false; 
 
     _commLink.clearPendingCommands();
     _lastUserCommandType = cmd;
@@ -113,11 +105,6 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
         case SP::CMD_SAVE_EEPROM:
         case SP::CMD_SET_DATETIME:
             retries = 2; timeout = 350; break;
-        case SP::CMD_MOVE_RIGHT_MAN:
-        case SP::CMD_MOVE_LEFT_MAN:
-        case SP::CMD_MOVE_DIST_R:
-        case SP::CMD_MOVE_DIST_F:
-            retries = 1; timeout = 250; break;
         default:
             retries = 1; timeout = 250; break;
     }
@@ -128,9 +115,7 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     packet.arg2 = arg2;
 
     bool sent = _commLink.sendCommand(packet, retries, timeout);
-    if (sent) {
-        EventBus::publish(SystemEvent::CMD_DISPATCHED);
-    }
+    if (sent) EventBus::publish(SystemEvent::CMD_DISPATCHED);
     return sent;
 }
 
@@ -139,33 +124,32 @@ bool DataManager::sendRequest(SP::MsgID msgId) {
     return _commLink.sendRequest(msgId, 0, 500);
 }
 
-SP::CmdType DataManager::getLastUserCommandType() const {
-    return _lastUserCommandType;
-}
+SP::CmdType DataManager::getLastUserCommandType() const { return _lastUserCommandType; }
 
 bool DataManager::requestConfig(SP::ConfigParamID paramID) {
     return _commLink.sendConfigGet((uint8_t)paramID);
 }
-
 bool DataManager::setConfig(SP::ConfigParamID paramID, int32_t value) {
     return _commLink.sendConfigSet((uint8_t)paramID, value);
 }
 
 bool DataManager::requestFullConfig() {
-    return _commLink.sendRequest(SP::MSG_CONFIG_SYNC_REQ, 1, 1000);
+    return _commLink.sendRequest(SP::MSG_CONFIG_SYNC_REQ, 3, 1000);
 }
-
 bool DataManager::pushFullConfig(const SP::FullConfigPacket& config) {
-    // Requires implementation in CommLink to accept full custom payload
-    return false; // Placeholder
+    return _commLink.sendFullConfigSync(config);
 }
 
 const SP::TelemetryPacket& DataManager::getTelemetry() const { return _model.getTelemetry(); }
 const SP::SensorPacket& DataManager::getSensors() const { return _model.getSensors(); }
 const SP::StatsPacket& DataManager::getStats() const { return _model.getStats(); }
 int32_t DataManager::getConfig(uint8_t index) const { return _model.getConfig(index); }
-uint8_t DataManager::getTargetShuttleID() const { return _model.getTargetShuttleID(); }
 
+bool DataManager::hasFullConfig() const { return _model.hasFullConfig(); }
+const SP::FullConfigPacket& DataManager::getFullConfig() const { return _model.getFullConfig(); }
+void DataManager::invalidateFullConfig() { _model.invalidateFullConfig(); }
+
+uint8_t DataManager::getTargetShuttleID() const { return _model.getTargetShuttleID(); }
 void DataManager::setPollingMode(PollingMode mode) { _pollingMode = mode; }
 void DataManager::setTargetShuttleID(uint8_t id) { _model.setTargetShuttleID(id); }
 
@@ -174,7 +158,6 @@ void DataManager::saveLocalShuttleNumber(uint8_t id) {
     prefs.begin("pult_cfg", false);
     prefs.putUInt("sht_num", id);
     prefs.end();
-    LOG_I("DATA", "Config saved. Target Shuttle: %d", id);
     setTargetShuttleID(id);
 }
 
@@ -183,9 +166,7 @@ void DataManager::setOtaUpdating(bool isUpdating) { _isOtaUpdating = isUpdating;
 void DataManager::setManualMoveMode(bool isMoving) {
     if (_isManualMoving != isMoving) {
         _isManualMoving = isMoving;
-        if (isMoving) {
-            _manualHeartbeatTimer = millis();
-        }
+        if (isMoving) _manualHeartbeatTimer = millis();
     }
 }
 

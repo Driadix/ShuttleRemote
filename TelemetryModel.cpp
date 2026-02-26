@@ -1,10 +1,11 @@
 #include "TelemetryModel.h"
 #include <Arduino.h>
 
-TelemetryModel::TelemetryModel() : _targetShuttleID(1), _lastRxTime(0), _isConnected(false) {
+TelemetryModel::TelemetryModel() : _targetShuttleID(1), _lastRxTime(0), _isConnected(false), _hasFullConfig(false) {
     memset(&_telemetry, 0, sizeof(_telemetry));
     memset(&_sensors, 0, sizeof(_sensors));
     memset(&_stats, 0, sizeof(_stats));
+    memset(&_fullConfig, 0, sizeof(_fullConfig));
     memset(_config, 0, sizeof(_config));
 }
 
@@ -44,6 +45,12 @@ void TelemetryModel::updateConfig(uint8_t paramID, int32_t value) {
             EventBus::publish(SystemEvent::CONFIG_UPDATED);
         }
     }
+}
+
+void TelemetryModel::updateFullConfig(const SP::FullConfigPacket& pkt) {
+    _fullConfig = pkt;
+    _hasFullConfig = true;
+    EventBus::publish(SystemEvent::CONFIG_UPDATED);
 }
 
 void TelemetryModel::setTargetShuttleID(uint8_t id) {

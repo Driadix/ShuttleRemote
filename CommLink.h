@@ -10,11 +10,11 @@ public:
 
     void tick();
 
-    // --- Sending Methods ---
     bool sendCommand(SP::CommandPacket packet, uint8_t maxRetries = 1, uint16_t ackTimeoutMs = 250);
     bool sendRequest(uint8_t msgID, uint8_t maxRetries = 0, uint16_t ackTimeoutMs = 500);
     bool sendConfigSet(uint8_t paramID, int32_t value);
     bool sendConfigGet(uint8_t paramID);
+    bool sendFullConfigSync(const SP::FullConfigPacket& config);
 
     void clearPendingCommands();
 
@@ -29,9 +29,8 @@ private:
     TelemetryModel* _model;
     SP::ProtocolParser _parser;
 
-    // --- Safe Job Queue (No Buffer Wrapping) ---
     struct TxJob {
-        uint8_t packetData[128]; // Pre-allocated fully assembled frame
+        uint8_t packetData[128]; 
         uint8_t length;
         uint8_t seqNum;
         uint32_t lastTxTime;
@@ -45,11 +44,9 @@ private:
     uint8_t _jobHead;
     uint8_t _jobTail;
 
-    // --- State ---
     TxState _txState;
     uint8_t _nextSeqNum;
 
-    // --- Internal Helpers ---
     bool enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries = 3, uint16_t ackTimeoutMs = 500);
     void processTxQueue();
     void handleRx();

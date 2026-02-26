@@ -1,16 +1,15 @@
 #include "UI_Graph.h"
 
-// Define Global Screen Instances
 DashboardScreen dashboardScreen;
-MainMenuScreen mainMenuScreen;
+OperatorMenuScreen operatorMenuScreen;
+CompactionMenuScreen compactionMenuScreen;
 PinEntryScreen pinEntryScreen;
-EngineeringMenuScreen engineeringMenuScreen;
-OptionsScreen optionsScreen;
+EngineerMenuScreen engineerMenuScreen;
+ConfigEditorScreen configEditorScreen;
+RemoteSettingsScreen remoteSettingsScreen;
 ErrorsScreen errorsScreen;
 UnloadPalletsScreen unloadPalletsScreen;
 StatsScreen statsScreen;
 DebugInfoScreen debugInfoScreen;
 MovementScreen movementScreen;
 MovementAxisScreen movementAxisScreen;
-ChangeChannelScreen changeChannelScreen;
-ChangeShuttleNumScreen changeShuttleNumScreen;

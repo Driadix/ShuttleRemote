@@ -1,15 +1,13 @@
 #include "NumericSpinnerWidget.h"
-#include <stdlib.h> // for abs
+#include <stdlib.h> 
 
 NumericSpinnerWidget::NumericSpinnerWidget(uint8_t numDigits, int32_t initialValue)
     : Widget(numDigits * 12, 16), _numDigits(numDigits), _curDigitIdx(0) {
 
     if (_numDigits > 6) _numDigits = 6;
-    // Recalculate width just in case numDigits was clamped
     setSize(_numDigits * 12, 16);
 
     int32_t temp = abs(initialValue);
-    // Fill digits from right to left
     for (int8_t i = _numDigits - 1; i >= 0; i--) {
         _digits[i] = temp % 10;
         temp /= 10;
@@ -27,23 +25,26 @@ uint32_t NumericSpinnerWidget::getValue() const {
 bool NumericSpinnerWidget::handleInput(InputEvent event) {
     bool changed = false;
 
-    // Use current digit index from state
-
-    // Logic: Up/Down changes current digit. OK moves to next digit.
-    // What if OK is pressed on last digit? Loop back or return true (finished)?
-    // The current logic loops back.
-
-    if (event == InputEvent::UP_PRESS) {
+    // LEFT / RIGHT Move Cursor
+    if (event == InputEvent::LEFT_PRESS) {
+        if (_curDigitIdx > 0) _curDigitIdx--;
+        else _curDigitIdx = _numDigits - 1;
+        changed = true;
+    } else if (event == InputEvent::RIGHT_PRESS) {
+        _curDigitIdx++;
+        if (_curDigitIdx >= _numDigits) _curDigitIdx = 0;
+        changed = true;
+    } 
+    // UP / KEY_A Increment Value
+    else if (event == InputEvent::UP_PRESS || event == InputEvent::KEY_A_PRESS) {
         _digits[_curDigitIdx]++;
         if (_digits[_curDigitIdx] > 9) _digits[_curDigitIdx] = 0;
         changed = true;
-    } else if (event == InputEvent::DOWN_PRESS) {
+    } 
+    // DOWN / KEY_B Decrement Value
+    else if (event == InputEvent::DOWN_PRESS || event == InputEvent::KEY_B_PRESS) {
         _digits[_curDigitIdx]--;
         if (_digits[_curDigitIdx] < 0) _digits[_curDigitIdx] = 9;
-        changed = true;
-    } else if (event == InputEvent::OK_SHORT_PRESS) {
-        _curDigitIdx++;
-        if (_curDigitIdx >= _numDigits) _curDigitIdx = 0;
         changed = true;
     }
 
@@ -52,19 +53,16 @@ bool NumericSpinnerWidget::handleInput(InputEvent event) {
 }
 
 void NumericSpinnerWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
-    display.setFont(u8g2_font_9x15_t_cyrillic); // Larger font for numbers
-    // 9x15 font. Baseline approx 12px from top.
+    display.setFont(u8g2_font_9x15_t_cyrillic); 
 
-    // Draw digits
     for (uint8_t i = 0; i < _numDigits; i++) {
-        uint8_t digitX = x + (i * 12); // Spacing
+        uint8_t digitX = x + (i * 12); 
 
-        // Draw underline if active
         if (i == _curDigitIdx) {
-            display.drawBox(digitX, y + 14, 9, 2); // Underline at bottom (y+14 to y+16)
+            display.drawBox(digitX, y + 14, 9, 2); 
         }
 
-        display.setCursor(digitX, y + 12); // Baseline
+        display.setCursor(digitX, y + 12); 
         display.print(_digits[i]);
     }
 }

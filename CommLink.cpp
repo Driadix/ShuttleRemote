@@ -27,10 +27,8 @@ void CommLink::handleRx() {
         }
 
         if (header) {
-            // Address Enforcement: Ignore packets not addressed to us or broadcast
             if (header->targetID != _model->getTargetShuttleID() &&
                 header->targetID != SP::TARGET_ID_BROADCAST) {
-                LOG_D("COMM", "RX dropped: Target %d ignored (We are tracking %d)", header->targetID, _model->getTargetShuttleID());
                 return;
             }
 
@@ -66,6 +64,11 @@ void CommLink::handleRx() {
                         _model->updateConfig(pkt->paramID, pkt->value);
                     }
                     break;
+                case SP::MSG_CONFIG_SYNC_REP:
+                    if (header->length == sizeof(SP::FullConfigPacket)) {
+                        _model->updateFullConfig(*(SP::FullConfigPacket*)payload);
+                    }
+                    break;
             }
         }
     }
@@ -74,13 +77,10 @@ void CommLink::handleRx() {
 void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
     if (_txState == TxState::WAITING_ACK && _jobHead != _jobTail) {
         if (_jobQueue[_jobHead].seqNum == seq) {
-            LOG_D("COMM", "ACK matched for Seq: %d. Job cleared.", seq);
-
             uint8_t msgID = _jobQueue[_jobHead].packetData[6];
             if (isUserCommand(msgID)) {
                 EventBus::publish(SystemEvent::CMD_ACKED);
             }
-
             _jobHead = (_jobHead + 1) % MAX_JOBS;
             _txState = TxState::IDLE;
         }
@@ -98,16 +98,10 @@ bool CommLink::hasPendingHeartbeat() const {
 
 bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries, uint16_t ackTimeoutMs) {
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
-    if (nextTail == _jobHead) {
-        LOG_W("COMM", "TX Queue Full! Dropping packet ID: %s", DebugUtils::getMsgIdName(msgID));
-        return false;
-    }
+    if (nextTail == _jobHead) return false;
 
     uint16_t totalLen = sizeof(SP::FrameHeader) + payloadLen + 2; 
-    if (totalLen > 128) {
-        LOG_E("COMM", "Packet size %d exceeds job buffer size!", totalLen);
-        return false; 
-    }
+    if (totalLen > 128) return false; 
 
     TxJob* job = &_jobQueue[_jobTail];
 
@@ -119,7 +113,6 @@ bool CommLink::enqueuePacket(uint8_t msgID, const void* payload, uint8_t payload
     header.seq = _nextSeqNum++;
     header.msgID = msgID;
 
-    // Assemble frame entirely in isolated Job memory block
     memcpy(job->packetData, &header, sizeof(header));
     if (payloadLen > 0) {
         memcpy(job->packetData + sizeof(header), payload, payloadLen);
@@ -151,11 +144,7 @@ void CommLink::processTxQueue() {
     if (_txState == TxState::IDLE) {
         if (_jobHead != _jobTail) {
             TxJob* job = &_jobQueue[_jobHead];
-
             if (_transport->availableForWrite() >= job->length) {
-                uint8_t msgID = job->packetData[6];
-                LOG_D("COMM", "TX: [%s] Seq: %d, Len: %d", DebugUtils::getMsgIdName(msgID), job->seqNum, job->length);
-
                 _transport->write(job->packetData, job->length);
                 job->lastTxTime = millis();
                 _txState = TxState::WAITING_ACK;
@@ -166,15 +155,12 @@ void CommLink::processTxQueue() {
             TxJob* job = &_jobQueue[_jobHead];
             if (millis() - job->lastTxTime > job->ackTimeoutMs) {
                 if (job->retryCount < job->maxRetries) {
-                    LOG_W("COMM", "ACK timeout Seq %d. Retry %d/%d", job->seqNum, job->retryCount + 1, job->maxRetries);
                     if (_transport->availableForWrite() >= job->length) {
                         job->retryCount++;
                         _transport->write(job->packetData, job->length);
                         job->lastTxTime = millis();
                     }
                 } else {
-                    LOG_W("COMM", "Max retries reached for Seq %d.", job->seqNum);
-                    
                     uint8_t msgID = job->packetData[6];
                     if (isUserCommand(msgID)) {
                         EventBus::publish(SystemEvent::CMD_FAILED);
@@ -215,6 +201,10 @@ bool CommLink::sendConfigGet(uint8_t paramID) {
     return enqueuePacket(SP::MSG_CONFIG_GET, &cfg, sizeof(cfg), 2, 500);
 }
 
+bool CommLink::sendFullConfigSync(const SP::FullConfigPacket& config) {
+    return enqueuePacket(SP::MSG_CONFIG_SYNC_PUSH, &config, sizeof(SP::FullConfigPacket), 3, 1000);
+}
+
 bool CommLink::isQueueFull() const {
     uint8_t nextTail = (_jobTail + 1) % MAX_JOBS;
     return nextTail == _jobHead;
@@ -232,18 +222,14 @@ void CommLink::clearPendingCommands() {
 
         if (isUserCommand(msgID)) {
             job->cancelled = true;
-
             if (_txState == TxState::WAITING_ACK && idx == _jobHead) {
-                LOG_I("COMM", "Preempting command: Aborting wait for Seq: %d", job->seqNum);
                 _txState = TxState::IDLE;
-            } else {
-                LOG_D("COMM", "Preempting command: Marking Seq: %d as cancelled", job->seqNum);
-            }
+            } 
         }
         idx = (idx + 1) % MAX_JOBS;
     }
 }
 
 bool CommLink::isUserCommand(uint8_t msgID) const {
-    return (msgID == SP::MSG_COMMAND || msgID == SP::MSG_CONFIG_SET || msgID == SP::MSG_CONFIG_GET);
+    return (msgID == SP::MSG_COMMAND || msgID == SP::MSG_CONFIG_SET || msgID == SP::MSG_CONFIG_GET || msgID == SP::MSG_CONFIG_SYNC_PUSH);
 }
