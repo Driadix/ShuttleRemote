@@ -38,12 +38,14 @@ void DashboardScreen::onEvent(SystemEvent event) {
         _actionMsgTimer = millis();
         setDirty();
     } else if (event == SystemEvent::CMD_ACKED) {
+        // Kept for Reliable Commands (like SAVE_EEPROM)
         if (_actionMsg.length() > 0) {
             _actionStatus = "[ OK ]";
             _actionMsgTimer = millis();
             setDirty();
         }
     } else if (event == SystemEvent::CMD_FAILED) {
+        // Kept for Reliable Commands
         if (_actionMsg.length() > 0) {
             _actionStatus = "[ X ]";
             _actionMsgTimer = millis();
@@ -155,7 +157,7 @@ void DashboardScreen::handleInput(InputEvent event) {
         }
     }
 
-    // Commands fire instantly over the preemptive link
+    // Commands fire instantly over the volatile link
     switch(event) {
         case InputEvent::UP_PRESS: // '8'
             if (!_isManualMoving) {
@@ -248,7 +250,12 @@ void DashboardScreen::tick() {
 
     if (_actionMsg.length() > 0) {
         uint32_t elapsed = millis() - _actionMsgTimer;
-        if (_actionStatus == "[ OK ]" && elapsed > 1500) {
+        // Volatile Action Mode: Clears [ > ] gracefully since no physical ACK will arrive
+        if (_actionStatus == "[ > ]" && elapsed > 800) {
+            _actionMsg = "";
+            _actionStatus = "";
+            setDirty();
+        } else if (_actionStatus == "[ OK ]" && elapsed > 1500) {
             _actionMsg = "";
             _actionStatus = "";
             setDirty();

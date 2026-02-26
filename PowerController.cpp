@@ -4,7 +4,8 @@
 #include "Logger.h"
 
 unsigned long PowerController::_lastActivityTime = 0;
-unsigned long PowerController::_sleepThreshold = 25000; // 25s default
+// Extended to 120 seconds (2 mins) to support industrial warehouse latency/hunting
+unsigned long PowerController::_sleepThreshold = 30000; 
 bool PowerController::_preventSleep = false;
 
 int PowerController::_batteryPin = -1;

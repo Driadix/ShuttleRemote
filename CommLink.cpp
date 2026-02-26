@@ -28,9 +28,9 @@ void CommLink::handleRx() {
         }
 
         if (header) {
-            if (header->targetID != _model->getTargetShuttleID() &&
+            if (header->targetID != SP::TARGET_ID_NONE &&
                 header->targetID != SP::TARGET_ID_BROADCAST) {
-                return;
+                return; // Drop if it's not meant for the Display
             }
 
             // ANY valid packet proves connection is alive.
@@ -106,13 +106,25 @@ void CommLink::transmitRawPacket(uint8_t msgID, const void* payload, uint8_t pay
     outBuffer[outLen - 2] = (uint8_t)(crc & 0xFF);
     outBuffer[outLen - 1] = (uint8_t)((crc >> 8) & 0xFF);
 
+    LOG_D("COMM", "TX: [%s] Len: %d", DebugUtils::getMsgIdName(msgID), payloadLen);
+
     if (_transport && _transport->availableForWrite() >= outLen) {
         _transport->write(outBuffer, outLen);
     }
 }
 
-// Preempts the single-slot tracker and sends immediately
+// DUAL-SLOT ARCHITECTURE: Automatically routes based on maxRetries requirement
 bool CommLink::trackAndTransmit(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t maxRetries, uint16_t timeout) {
+    if (maxRetries == 0) {
+        // SLOT 1: ACTION CHANNEL (Volatile)
+        // Fire and forget. Transmits instantly, bypasses the Reliable Tracker entirely.
+        uint8_t tempBuf[64];
+        uint16_t tempLen;
+        transmitRawPacket(msgID, payload, payloadLen, tempBuf, tempLen);
+        return true;
+    }
+
+    // SLOT 2: RELIABLE CHANNEL (Tracked)
     transmitRawPacket(msgID, payload, payloadLen, _trackedBuffer, _trackedLength);
     
     _trackedSeq = _nextSeqNum - 1; 
@@ -133,19 +145,27 @@ bool CommLink::sendRequest(uint8_t msgID) {
     return true;
 }
 
-// Action Dispatcher (Preemptive + Throttled)
+// Action Dispatcher (Dual-Slot + Throttled)
 bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_t ackTimeoutMs) {
-    // THROTTLE LOGIC: Prevent button mashing from choking radio
-    if (packet.cmdType != SP::CMD_STOP && 
-        packet.cmdType == _lastSentCmdType && 
-        (millis() - _lastCmdTxTime < 300)) {
-        return true; // Return true so UI acts like it sent, but we protect bandwidth
+    // GLOBAL THROTTLE: Protect 9600-baud bandwidth against generic button mashing
+    if (packet.cmdType != SP::CMD_STOP && (millis() - _lastCmdTxTime < 300)) {
+        LOG_D("COMM", "Command dropped (Global Throttle Active)");
+        return true; // Return true so UI acts like it sent
+    }
+
+    // RELIABLE CHANNEL PROTECTION: Do not overwrite critical configs if we requested a reliable action
+    if (_txState == TxState::WAITING_ACK && maxRetries > 0) {
+        uint8_t trackedMsgID = _trackedBuffer[6];
+        if (trackedMsgID == SP::MSG_CONFIG_SET || trackedMsgID == SP::MSG_CONFIG_SYNC_PUSH) {
+            LOG_W("COMM", "Reliable action dropped; critical config currently in transit.");
+            return false; 
+        }
     }
 
     _lastCmdTxTime = millis();
     _lastSentCmdType = packet.cmdType;
 
-    // PREEMPTION: Immediately overwrite tracking buffer and dispatch
+    // Dispatcher automatically routes to Slot 1 (Volatile) or Slot 2 (Reliable)
     return trackAndTransmit(SP::MSG_COMMAND, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
 }
 
@@ -168,7 +188,7 @@ bool CommLink::sendFullConfigSync(const SP::FullConfigPacket& config) {
     return trackAndTransmit(SP::MSG_CONFIG_SYNC_PUSH, &config, sizeof(SP::FullConfigPacket), 3, 1000);
 }
 
-// Handles timeout logic for the single active tracked packet
+// Handles timeout logic for the single active tracked packet in the Reliable Slot
 void CommLink::processTxQueue() {
     if (!_transport) return;
 
