@@ -12,7 +12,7 @@ public:
 
     // --- Sending Methods ---
     bool sendCommand(SP::CommandPacket packet, uint8_t maxRetries = 1, uint16_t ackTimeoutMs = 250);
-    bool sendRequest(uint8_t msgID, uint8_t maxRetries = 3);
+    bool sendRequest(uint8_t msgID, uint8_t maxRetries = 0, uint16_t ackTimeoutMs = 500);
     bool sendConfigSet(uint8_t paramID, int32_t value);
     bool sendConfigGet(uint8_t paramID);
 

@@ -289,22 +289,22 @@ bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_
     return enqueuePacket(SP::MSG_COMMAND, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
 }
 
-bool CommLink::sendRequest(uint8_t msgID, uint8_t maxRetries) {
-    return enqueuePacket(msgID, nullptr, 0, maxRetries); // Uses default ackTimeoutMs = 500
+bool CommLink::sendRequest(uint8_t msgID, uint8_t maxRetries, uint16_t ackTimeoutMs) {
+    return enqueuePacket(msgID, nullptr, 0, maxRetries, ackTimeoutMs); 
 }
 
 bool CommLink::sendConfigSet(uint8_t paramID, int32_t value) {
     SP::ConfigPacket cfg;
     cfg.paramID = paramID;
     cfg.value = value;
-    return enqueuePacket(SP::MSG_CONFIG_SET, &cfg, sizeof(cfg)); // Uses default ackTimeoutMs = 500
+    return enqueuePacket(SP::MSG_CONFIG_SET, &cfg, sizeof(cfg), 2, 500); 
 }
 
 bool CommLink::sendConfigGet(uint8_t paramID) {
     SP::ConfigPacket cfg;
     cfg.paramID = paramID;
     cfg.value = 0;
-    return enqueuePacket(SP::MSG_CONFIG_GET, &cfg, sizeof(cfg)); // Uses default ackTimeoutMs = 500
+    return enqueuePacket(SP::MSG_CONFIG_GET, &cfg, sizeof(cfg), 2, 500);
 }
 
 bool CommLink::isQueueFull() const {

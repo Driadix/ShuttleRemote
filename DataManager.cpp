@@ -79,7 +79,7 @@ void DataManager::tick() {
         if (now - _lastHeartbeatTimer >= pollInterval) {
             _lastHeartbeatTimer = now;
             if (!_commLink.hasPendingHeartbeat()) {
-                _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT, 0);
+                _commLink.sendRequest(SP::MSG_REQ_HEARTBEAT);
                 LOG_D("DATA", "Heartbeat queued. Interval: %d ms", pollInterval);
             }
         }
@@ -89,51 +89,25 @@ void DataManager::tick() {
 // --- Public API ---
 
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
-    bool isBackgroundPoll = (cmd == SP::MSG_REQ_HEARTBEAT || 
-                             cmd == SP::MSG_REQ_SENSORS || 
-                             cmd == SP::MSG_REQ_STATS);
-
-    if (!_model.isConnected() && !isBackgroundPoll) {
-        LOG_W("DATA", "Safety Interlock: Command %s blocked. Shuttle disconnected.", DebugUtils::getMsgIdName(cmd));
+    // 1. Interlock Check
+    if (!_model.isConnected()) {
+        LOG_W("DATA", "Interlock: Command %d blocked. Disconnected.", (int)cmd);
         return false; 
     }
 
-    if (!isBackgroundPoll) {
-        _commLink.clearPendingCommands();
-    } else {
-        if (_commLink.isWaitingForAck()) {
-            LOG_D("DATA", "Skipping poll %s: Radio is busy with user command.", DebugUtils::getMsgIdName(cmd));
-            return false;
-        }
-    }
-    
-    LOG_D("DATA", "Dispatching command: MSG_COMMAND (Type: %d) to CommLink", (int)cmd);
+    // 2. Preempt the Queue! (Human intent overrides background polls)
+    _commLink.clearPendingCommands();
+    _lastUserCommandType = cmd;
 
-
-    if (!isBackgroundPoll) {
-        _lastUserCommandType = cmd;
-    }
-
-    // Industrial Latency Strategy
+    // 3. Latency Matrix
     uint8_t retries = 1;
     uint16_t timeout = 250;
 
     switch (cmd) {
-        // 3. Safety Overrides (Aggressive Spamming)
-        case SP::MSG_REQ_HEARTBEAT:
-        case SP::MSG_REQ_SENSORS:
-        case SP::MSG_REQ_STATS:
-            retries = 0;
-            timeout = 500;
-            break;
         case SP::CMD_STOP:
         case SP::CMD_STOP_MANUAL:
-        case SP::CMD_EVACUATE_ON: // Assume evacuation is also critical
-            retries = 4;
-            timeout = 150;
-            break;
-
-        // 2. Discrete Actions (Guaranteed Delivery)
+        case SP::CMD_EVACUATE_ON: 
+            retries = 4; timeout = 150; break;
         case SP::CMD_LIFT_UP:
         case SP::CMD_LIFT_DOWN:
         case SP::CMD_LOAD:
@@ -148,24 +122,14 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
         case SP::CMD_RESET_ERROR:
         case SP::CMD_SAVE_EEPROM:
         case SP::CMD_SET_DATETIME:
-            retries = 2;
-            timeout = 350;
-            break;
-
-        // 1. Continuous/Hazardous Movement (Fail Fast)
+            retries = 2; timeout = 350; break;
         case SP::CMD_MOVE_RIGHT_MAN:
         case SP::CMD_MOVE_LEFT_MAN:
         case SP::CMD_MOVE_DIST_R:
         case SP::CMD_MOVE_DIST_F:
-            retries = 1;
-            timeout = 250;
-            break;
-
-        // Default for others (Info requests, etc.)
+            retries = 1; timeout = 250; break;
         default:
-            retries = 1;
-            timeout = 250;
-            break;
+            retries = 1; timeout = 250; break;
     }
 
     SP::CommandPacket packet;
@@ -174,10 +138,18 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     packet.arg2 = arg2;
 
     bool sent = _commLink.sendCommand(packet, retries, timeout);
-    if (sent && !isBackgroundPoll) {
+    if (sent) {
         EventBus::publish(SystemEvent::CMD_DISPATCHED);
     }
     return sent;
+}
+
+bool DataManager::sendRequest(SP::MsgID msgId) {
+    if (_commLink.isWaitingForAck()) {
+        return false;
+    }
+
+    return _commLink.sendRequest(msgId, 0, 500);
 }
 
 SP::CmdType DataManager::getLastUserCommandType() const {

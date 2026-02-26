@@ -9,29 +9,29 @@
     #define LOG_INIT(baud) Serial.begin(baud)
 
     // Formatting: [TIME_MS][LEVEL][TAG] Message
-    #define LOG_FORMAT(letter, tag, format, ...) \
+    #define APP_LOG_FMT(letter, tag, format, ...) \
         Serial.printf("[%6lu][%s][%s] " format "\r\n", millis(), #letter, tag, ##__VA_ARGS__)
 
     #if APP_LOG_LEVEL >= 1
-        #define LOG_E(tag, format, ...) LOG_FORMAT(E, tag, format, ##__VA_ARGS__)
+        #define LOG_E(tag, format, ...) APP_LOG_FMT(E, tag, format, ##__VA_ARGS__)
     #else
         #define LOG_E(tag, format, ...)
     #endif
 
     #if APP_LOG_LEVEL >= 2
-        #define LOG_W(tag, format, ...) LOG_FORMAT(W, tag, format, ##__VA_ARGS__)
+        #define LOG_W(tag, format, ...) APP_LOG_FMT(W, tag, format, ##__VA_ARGS__)
     #else
         #define LOG_W(tag, format, ...)
     #endif
 
     #if APP_LOG_LEVEL >= 3
-        #define LOG_I(tag, format, ...) LOG_FORMAT(I, tag, format, ##__VA_ARGS__)
+        #define LOG_I(tag, format, ...) APP_LOG_FMT(I, tag, format, ##__VA_ARGS__)
     #else
         #define LOG_I(tag, format, ...)
     #endif
 
     #if APP_LOG_LEVEL >= 4
-        #define LOG_D(tag, format, ...) LOG_FORMAT(D, tag, format, ##__VA_ARGS__)
+        #define LOG_D(tag, format, ...) APP_LOG_FMT(D, tag, format, ##__VA_ARGS__)
     #else
         #define LOG_D(tag, format, ...)
     #endif

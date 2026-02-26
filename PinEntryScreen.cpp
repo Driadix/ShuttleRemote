@@ -1,4 +1,5 @@
 #include "PinEntryScreen.h"
+#include "DataManager.h"
 #include "ScreenManager.h"
 
 PinEntryScreen::PinEntryScreen()

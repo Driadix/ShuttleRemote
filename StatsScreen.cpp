@@ -52,6 +52,6 @@ void StatsScreen::tick() {
     static uint32_t lastPoll = 0;
     if (millis() - lastPoll > 1000) {
         lastPoll = millis();
-        DataManager::getInstance().sendRequest(SP::MSG_REQ_STATS, 0);
+        DataManager::getInstance().sendRequest(SP::MSG_REQ_STATS);
     }
 }

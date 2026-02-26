@@ -27,6 +27,7 @@ public:
 
     // --- Command Gateway ---
     bool sendCommand(SP::CmdType cmd, int32_t arg1 = 0, int32_t arg2 = 0);
+    bool sendRequest(SP::MsgID msgId);
     bool requestConfig(SP::ConfigParamID paramID);
     bool setConfig(SP::ConfigParamID paramID, int32_t value);
     SP::CmdType getLastUserCommandType() const;
