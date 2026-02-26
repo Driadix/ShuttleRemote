@@ -8,7 +8,7 @@ ChangeShuttleNumScreen::ChangeShuttleNumScreen()
 
 void ChangeShuttleNumScreen::onEnter() {
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
-    _spinner = NumericSpinnerWidget(2, DataManager::getInstance().getShuttleNumber());
+    _spinner = NumericSpinnerWidget(2, DataManager::getInstance().getTargetShuttleID());
 }
 
 void ChangeShuttleNumScreen::draw(U8G2& display) {

@@ -26,7 +26,7 @@ DataManager::DataManager()
 
 void DataManager::init(HardwareSerial* serial, uint8_t shuttleNum) {
     _transport.setSerial(serial);
-    _model.setShuttleNumber(shuttleNum);
+    _model.setTargetShuttleID(shuttleNum);
     EventBus::subscribe(this);
 }
 
@@ -47,25 +47,20 @@ void DataManager::tick() {
 
     uint32_t now = millis();
 
-    // 1. Calculate Dynamic Timeout
-    uint32_t timeoutLimit = 2000; // Default active timeout
+    uint32_t timeoutLimit = 2000;
     if (_pollingMode == PollingMode::IDLE_KEEPALIVE) timeoutLimit = 6000;
 
-    // 2. Watchdog Check
     if (_model.isConnected() && (now - _model.getLastRxTime() > timeoutLimit)) {
         _model.setConnected(false);
         LOG_I("DATA", "Connection LOST! Timeout: %u ms", timeoutLimit);
         EventBus::publish(SystemEvent::CONNECTION_LOST);
     }
 
-    // 3. Heartbeat Dispatcher
     if (_pollingMode == PollingMode::CUSTOM_DATA) {
-        // Do nothing. Screens handle polling.
         return;
     }
 
     if (_isManualMoving) {
-        // Manual Move Heartbeat Logic (Every 200ms) - Aggressive
         if (now - _manualHeartbeatTimer >= 200) {
             _manualHeartbeatTimer = now;
             if (!_commLink.hasPendingHeartbeat()) {
@@ -74,7 +69,7 @@ void DataManager::tick() {
         }
     } else {
         uint32_t pollInterval = (_pollingMode == PollingMode::IDLE_KEEPALIVE) ? 2000 : 500;
-        if (!_model.isConnected()) pollInterval = 1500; // Discovery mode
+        if (!_model.isConnected()) pollInterval = 1500;
 
         if (now - _lastHeartbeatTimer >= pollInterval) {
             _lastHeartbeatTimer = now;
@@ -86,20 +81,15 @@ void DataManager::tick() {
     }
 }
 
-// --- Public API ---
-
 bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
-    // 1. Interlock Check
     if (!_model.isConnected()) {
         LOG_W("DATA", "Interlock: Command %d blocked. Disconnected.", (int)cmd);
         return false; 
     }
 
-    // 2. Preempt the Queue! (Human intent overrides background polls)
     _commLink.clearPendingCommands();
     _lastUserCommandType = cmd;
 
-    // 3. Latency Matrix
     uint8_t retries = 1;
     uint16_t timeout = 250;
 
@@ -145,10 +135,7 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
 }
 
 bool DataManager::sendRequest(SP::MsgID msgId) {
-    if (_commLink.isWaitingForAck()) {
-        return false;
-    }
-
+    if (_commLink.isWaitingForAck()) return false;
     return _commLink.sendRequest(msgId, 0, 500);
 }
 
@@ -164,36 +151,34 @@ bool DataManager::setConfig(SP::ConfigParamID paramID, int32_t value) {
     return _commLink.sendConfigSet((uint8_t)paramID, value);
 }
 
-// --- Getters ---
+bool DataManager::requestFullConfig() {
+    return _commLink.sendRequest(SP::MSG_CONFIG_SYNC_REQ, 1, 1000);
+}
+
+bool DataManager::pushFullConfig(const SP::FullConfigPacket& config) {
+    // Requires implementation in CommLink to accept full custom payload
+    return false; // Placeholder
+}
 
 const SP::TelemetryPacket& DataManager::getTelemetry() const { return _model.getTelemetry(); }
 const SP::SensorPacket& DataManager::getSensors() const { return _model.getSensors(); }
 const SP::StatsPacket& DataManager::getStats() const { return _model.getStats(); }
 int32_t DataManager::getConfig(uint8_t index) const { return _model.getConfig(index); }
-uint8_t DataManager::getShuttleNumber() const { return _model.getShuttleNumber(); }
+uint8_t DataManager::getTargetShuttleID() const { return _model.getTargetShuttleID(); }
 
-// --- Setters ---
-
-void DataManager::setPollingMode(PollingMode mode) {
-    _pollingMode = mode;
-}
-
-void DataManager::setShuttleNumber(uint8_t id) {
-    _model.setShuttleNumber(id);
-}
+void DataManager::setPollingMode(PollingMode mode) { _pollingMode = mode; }
+void DataManager::setTargetShuttleID(uint8_t id) { _model.setTargetShuttleID(id); }
 
 void DataManager::saveLocalShuttleNumber(uint8_t id) {
     Preferences prefs;
     prefs.begin("pult_cfg", false);
     prefs.putUInt("sht_num", id);
     prefs.end();
-    LOG_I("DATA", "Config saved. Shuttle: %d", id);
-    setShuttleNumber(id);
+    LOG_I("DATA", "Config saved. Target Shuttle: %d", id);
+    setTargetShuttleID(id);
 }
 
-void DataManager::setOtaUpdating(bool isUpdating) {
-    _isOtaUpdating = isUpdating;
-}
+void DataManager::setOtaUpdating(bool isUpdating) { _isOtaUpdating = isUpdating; }
 
 void DataManager::setManualMoveMode(bool isMoving) {
     if (_isManualMoving != isMoving) {
@@ -212,30 +197,10 @@ void DataManager::setRemoteBatteryLevel(int level, bool isCharging) {
     }
 }
 
-void DataManager::setRadioChannel(uint8_t ch) {
-    _radioChannel = ch;
-}
-
-int DataManager::getRemoteBatteryLevel() const {
-    return _remoteBatteryLevel;
-}
-
-uint8_t DataManager::getRadioChannel() const {
-    return _radioChannel;
-}
-
-bool DataManager::isConnected() const {
-    return _model.isConnected();
-}
-
-bool DataManager::isWaitingForAck() const {
-    return _commLink.isWaitingForAck();
-}
-
-bool DataManager::isCharging() const {
-    return _isCharging;
-}
-
-bool DataManager::isQueueFull() const {
-    return _commLink.isQueueFull();
-}
+void DataManager::setRadioChannel(uint8_t ch) { _radioChannel = ch; }
+int DataManager::getRemoteBatteryLevel() const { return _remoteBatteryLevel; }
+uint8_t DataManager::getRadioChannel() const { return _radioChannel; }
+bool DataManager::isConnected() const { return _model.isConnected(); }
+bool DataManager::isWaitingForAck() const { return _commLink.isWaitingForAck(); }
+bool DataManager::isCharging() const { return _isCharging; }
+bool DataManager::isQueueFull() const { return _commLink.isQueueFull(); }

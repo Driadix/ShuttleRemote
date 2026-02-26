@@ -29,7 +29,7 @@ void OptionsScreen::provideMenuItem(uint8_t index, char* buffer) {
             break;
         }
         case 2: snprintf(buffer, 64, "Макс. скорость: %-3ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MAX_SPEED) / 10); break;
-        case 3: snprintf(buffer, 64, "Изменить N уст: %-3d", DataManager::getInstance().getShuttleNumber()); break;
+        case 3: snprintf(buffer, 64, "Изменить N уст: %-3d", DataManager::getInstance().getTargetShuttleID()); break;
         case 4: snprintf(buffer, 64, "Защита бат: %-3ld%%", (long)DataManager::getInstance().getConfig(SP::CFG_MIN_BATT)); break;
         case 5: strcpy(buffer, "Инженерное меню"); break;
         case 6: strcpy(buffer, "Сохр. параметры"); break;

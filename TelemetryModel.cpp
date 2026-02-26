@@ -1,7 +1,7 @@
 #include "TelemetryModel.h"
 #include <Arduino.h>
 
-TelemetryModel::TelemetryModel() : _shuttleNumber(1), _lastRxTime(0), _isConnected(false) {
+TelemetryModel::TelemetryModel() : _targetShuttleID(1), _lastRxTime(0), _isConnected(false) {
     memset(&_telemetry, 0, sizeof(_telemetry));
     memset(&_sensors, 0, sizeof(_sensors));
     memset(&_stats, 0, sizeof(_stats));
@@ -14,7 +14,6 @@ void TelemetryModel::updateTelemetry(const SP::TelemetryPacket& packet) {
         memcpy(&_telemetry, &packet, sizeof(SP::TelemetryPacket));
         EventBus::publish(SystemEvent::TELEMETRY_UPDATED);
 
-        // Check for specific events (Low Battery, Error)
         if (_telemetry.batteryCharge < 20) {
             EventBus::publish(SystemEvent::BATTERY_LOW);
         }
@@ -47,10 +46,9 @@ void TelemetryModel::updateConfig(uint8_t paramID, int32_t value) {
     }
 }
 
-void TelemetryModel::setShuttleNumber(uint8_t id) {
-    if (_shuttleNumber != id) {
-        _shuttleNumber = id;
-        // Could fire SHUTTLE_CHANGED event if needed
+void TelemetryModel::setTargetShuttleID(uint8_t id) {
+    if (_targetShuttleID != id) {
+        _targetShuttleID = id;
     }
 }
 

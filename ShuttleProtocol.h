@@ -9,7 +9,7 @@ constexpr uint8_t PROTOCOL_SYNC_2 = 0x55;
 constexpr uint8_t PROTOCOL_VER = 1;
 
 constexpr uint8_t TARGET_ID_NONE = 0x00;  // Direct UART line, target ID doesn't matter
-constexpr uint8_t TARGET_ID_BROADCAST = 0xFF;  // Global command to all shuttles listening (use carefully)
+constexpr uint8_t TARGET_ID_BROADCAST = 0xFF;  // Global command to all shuttles listening
 
 #pragma pack(push, 1)
 
@@ -30,11 +30,19 @@ enum MsgID : uint8_t {
     MSG_REQ_SENSORS    = 0x05, // Pult -> Shuttle: Request Sensors
     MSG_REQ_STATS      = 0x06, // Pult -> Shuttle: Request Stats
     MSG_LOG            = 0x10, // Async: Human readable strings with levels
-    MSG_CONFIG_SET     = 0x20, // Display/Pult -> Shuttle: Set EEPROM param
-    MSG_CONFIG_GET     = 0x21, // Display/Pult -> Shuttle: Request param
-    MSG_CONFIG_REP     = 0x22, // Shuttle -> Display/Pult: Reply with param
-    MSG_COMMAND        = 0x30, // Display/Pult -> Shuttle: Action command
-    MSG_ACK            = 0x31  // Shuttle -> Display/Pult: Command acknowledgment
+    
+    // Single Parameter Configuration
+    MSG_CONFIG_SET     = 0x20, // Pult -> Shuttle: Set EEPROM param
+    MSG_CONFIG_GET     = 0x21, // Pult -> Shuttle: Request param
+    MSG_CONFIG_REP     = 0x22, // Shuttle -> Pult: Reply with param
+    
+    // Bulk Parameter Configuration (Sync)
+    MSG_CONFIG_SYNC_REQ  = 0x23, // Pult -> Shuttle: Request full config struct
+    MSG_CONFIG_SYNC_PUSH = 0x24, // Pult -> Shuttle: Send full config struct to save
+    MSG_CONFIG_SYNC_REP  = 0x25, // Shuttle -> Pult: Reply with full config struct
+
+    MSG_COMMAND        = 0x30, // Pult -> Shuttle: Action command
+    MSG_ACK            = 0x31  // Shuttle -> Pult: Command acknowledgment
 };
 
 enum LogLevel : uint8_t {
@@ -74,16 +82,16 @@ enum CmdType : uint8_t {
 };
 
 enum ConfigParamID : uint8_t {
-    CFG_SHUTTLE_NUM     = 1,   // "dNN"
-    CFG_INTER_PALLET    = 2,   // "dDm"
-    CFG_SHUTTLE_LEN     = 3,   // "dSl"
-    CFG_MAX_SPEED       = 4,   // "dSp"
-    CFG_MIN_BATT        = 5,   // "dBc"
-    CFG_WAIT_TIME       = 6,   // "dWt"
-    CFG_MPR_OFFSET      = 7,   // "dMo"
-    CFG_CHNL_OFFSET     = 8,   // "dMc"
-    CFG_FIFO_LIFO       = 9,   // "dFIFO_" / "dLIFO_"
-    CFG_REVERSE_MODE    = 10   // "dRevOn" / "dReOff"
+    CFG_SHUTTLE_NUM     = 1,
+    CFG_INTER_PALLET    = 2,
+    CFG_SHUTTLE_LEN     = 3,
+    CFG_MAX_SPEED       = 4,
+    CFG_MIN_BATT        = 5,
+    CFG_WAIT_TIME       = 6,
+    CFG_MPR_OFFSET      = 7,
+    CFG_CHNL_OFFSET     = 8,
+    CFG_FIFO_LIFO       = 9,
+    CFG_REVERSE_MODE    = 10
 };
 
 // --- 4. Payloads ---
@@ -96,7 +104,7 @@ struct TelemetryPacket {
     uint8_t  batteryCharge;    // %
     float    batteryVoltage;   // Volts
     uint16_t stateFlags;       // Bit 0: lifterUp, 1: motorStart, 2: reverse, 3: inv, 4: inChnl, 5: fifoLifo
-    uint8_t  shuttleNumber;
+    uint8_t  shuttleNumber;    // Inner shuttle awareness
     uint8_t  palleteCount;     // Runtime pallet count
 };
 
@@ -132,10 +140,23 @@ struct ConfigPacket {
     int32_t value;             // Value to set / reported value
 };
 
+struct FullConfigPacket {
+    uint8_t  shuttleNumber;
+    uint16_t interPallet;
+    uint16_t shuttleLen;
+    uint16_t maxSpeed;
+    uint8_t  minBatt;
+    uint16_t waitTime;
+    int16_t  mprOffset;
+    int16_t  chnlOffset;
+    uint8_t  fifoLifo;
+    uint8_t  reverseMode;
+};
+
 struct CommandPacket {
     uint8_t cmdType;           // CmdType enum
     int32_t arg1;              // Used for Distances (dMr, dMf), Qty (dQt)
-    int32_t arg2;              // Unused currently, reserved for future (e.g., specific speed)
+    int32_t arg2;              // Unused currently, reserved for future
 };
 
 struct AckPacket {
@@ -164,7 +185,6 @@ public:
         return crc;
     }
 
-    // Safely appends the CRC to the end of a prepared buffer in Little-Endian format
     static inline void appendCRC(uint8_t* buffer, uint16_t lengthWithoutCRC) {
         uint16_t crc = calcCRC16(buffer, lengthWithoutCRC);
         buffer[lengthWithoutCRC]     = (uint8_t)(crc & 0xFF);         // LSB
@@ -193,7 +213,6 @@ public:
         crcError = false;
     }
 
-    // Feeds a byte. Returns pointer to FrameHeader ONLY if perfect CRC match.
     inline FrameHeader* feed(uint8_t byte) {
         switch (state) {
             case STATE_WAIT_SYNC1:

@@ -58,17 +58,18 @@ void DashboardScreen::draw(U8G2& display) {
     _statusBar.draw(display, 0, 0);
 
     display.setFont(u8g2_font_6x13_t_cyrillic);
-    display.setDrawColor(1); // White text
+    display.setDrawColor(1);
 
     char buf[64];
+    bool connected = DataManager::getInstance().isConnected();
 
-    if (!DataManager::getInstance().isConnected()) {
-        display.drawStr(0, 25, "Подключение..."); // Connecting...
-        // Hide movement animations when disconnected
+    if (!connected) {
+        if ((millis() / 500) % 2 == 0) {
+            display.drawStr(15, 35, "Поиск шаттла...");
+        }
     } else {
         const SP::TelemetryPacket& cachedTelemetry = DataManager::getInstance().getTelemetry();
 
-        // 2. Main Status
         if (cachedTelemetry.shuttleStatus == 13) {
             snprintf(buf, sizeof(buf), TXT_LEFT_TO_UNLOAD, cachedTelemetry.palleteCount);
             display.drawStr(0, 25, buf);
@@ -81,7 +82,6 @@ void DashboardScreen::draw(U8G2& display) {
             display.drawStr(0, 25, buf);
         }
 
-        // 3. Warnings / Queue Full / Errors
         if (_showQueueFull) {
             display.drawStr(0, 40, TXT_QUEUE_FULL);
         } else if (cachedTelemetry.errorCode) {
@@ -95,37 +95,26 @@ void DashboardScreen::draw(U8G2& display) {
             }
         }
 
-        // 4. Manual Command
         if (_isManualMoving) {
             display.drawStr(85, 40, _manualCommand.c_str());
         }
 
-        // 5. Draw Movement Animation
-        drawShuttleStatus(display, cachedTelemetry);
-    }
-
-    // ACK Status / Action Bar
-    if (!DataManager::getInstance().isConnected()) {
-        if ((millis() / 500) % 2 == 0) {
-            display.drawStr(0, 52, "Поиск шаттла...");
-        }
-    } else {
         if (_actionMsg.length() > 0) {
             char actionBuf[64];
             snprintf(actionBuf, sizeof(actionBuf), "%s %s", _actionMsg.c_str(), _actionStatus.c_str());
             display.drawStr(0, 52, actionBuf);
         }
+
+        drawShuttleStatus(display, cachedTelemetry);
     }
 
-
-    // 6. BOTTOM SHUTTLE INDICATOR (Legacy moving number)
+    // Bottom Indicator
     display.setFont(u8g2_font_10x20_t_cyrillic);
-    uint8_t shtNumToDraw = _isSelectingShuttle ? _tempShuttleNum : DataManager::getInstance().getShuttleNumber();
+    uint8_t shtNumToDraw = _isSelectingShuttle ? _tempShuttleNum : DataManager::getInstance().getTargetShuttleID();
     
-    // Calculate layout identical to old legacy behavior
     int xOffset = 30 * (shtNumToDraw - 1);
     if (shtNumToDraw > 4) {
-        xOffset = 100; // Right aligned if number > 4
+        xOffset = 100;
     }
 
     if (!_isSelectingShuttle || _blinkState) {
@@ -165,6 +154,25 @@ void DashboardScreen::drawShuttleStatus(U8G2& display, const SP::TelemetryPacket
 
 void DashboardScreen::handleInput(InputEvent event) {
     bool success = true;
+
+    // Safety Interlock - Block operational commands if disconnected
+    if (!DataManager::getInstance().isConnected()) {
+        if (event != InputEvent::BACK_PRESS && 
+            event != InputEvent::KEY_A_PRESS && 
+            event != InputEvent::KEY_B_PRESS &&
+            event != InputEvent::KEY_1_PRESS &&
+            event != InputEvent::KEY_2_PRESS &&
+            event != InputEvent::KEY_3_PRESS &&
+            event != InputEvent::KEY_4_PRESS &&
+            event != InputEvent::OK_SHORT_PRESS &&
+            event != InputEvent::OK_LONG_PRESS) {
+            
+            _showQueueFull = true; 
+            _queueFullTimer = millis();
+            setDirty();
+            return; 
+        }
+    }
 
     switch(event) {
         case InputEvent::UP_PRESS: // '8'
@@ -224,13 +232,11 @@ void DashboardScreen::handleInput(InputEvent event) {
             ScreenManager::getInstance().push(&mainMenuScreen);
             break;
 
-        // --- SHUTTLE QUICK SELECTION LOGIC ---
         case InputEvent::OK_SHORT_PRESS:
         case InputEvent::OK_LONG_PRESS: // 'D'
             if (_isSelectingShuttle) {
                 DataManager::getInstance().saveLocalShuttleNumber(_tempShuttleNum);
                 _isSelectingShuttle = false;
-                // No PING needed, heartbeat handles it
                 setDirty();
             }
             break;
@@ -242,7 +248,7 @@ void DashboardScreen::handleInput(InputEvent event) {
         case InputEvent::KEY_3_PRESS:
         case InputEvent::KEY_4_PRESS:
              if (!_isSelectingShuttle) {
-                 _tempShuttleNum = DataManager::getInstance().getShuttleNumber();
+                 _tempShuttleNum = DataManager::getInstance().getTargetShuttleID();
              }
              _isSelectingShuttle = true;
              _shuttleSelectTimer = millis();
@@ -280,35 +286,28 @@ void DashboardScreen::tick() {
         setDirty();
         _statusBar.clearDirty();
     }
-    // DataManager::getInstance().setPollingMode(DataManager::PollingMode::ACTIVE_TELEMETRY); // Already set onEnter
 
     if (_showQueueFull && millis() - _queueFullTimer > 2000) {
         _showQueueFull = false;
         setDirty();
     }
 
-    // Action Bar Expiration
     if (_actionMsg.length() > 0) {
         uint32_t elapsed = millis() - _actionMsgTimer;
-        if (_actionStatus == "[ OK ]") {
-            if (elapsed > 1500) {
-                _actionMsg = "";
-                _actionStatus = "";
-                setDirty();
-            }
-        } else if (_actionStatus == "[ X ]") {
-            if (elapsed > 3000) {
-                _actionMsg = "";
-                _actionStatus = "";
-                setDirty();
-            }
+        if (_actionStatus == "[ OK ]" && elapsed > 1500) {
+            _actionMsg = "";
+            _actionStatus = "";
+            setDirty();
+        } else if (_actionStatus == "[ X ]" && elapsed > 3000) {
+            _actionMsg = "";
+            _actionStatus = "";
+            setDirty();
         }
     }
 
-    // Shuttle selection timeout and blinking
     if (_isSelectingShuttle) {
         if (millis() - _shuttleSelectTimer > 5000) {
-            _isSelectingShuttle = false; // Timeout, revert
+            _isSelectingShuttle = false;
             setDirty();
         }
         if (millis() - _lastBlinkTick > 250) {
@@ -320,7 +319,6 @@ void DashboardScreen::tick() {
 
     DataManager::getInstance().setManualMoveMode(_isManualMoving);
 
-    // Movement Animation Tick (50ms)
     if (millis() - _lastAnimTick > 50) {
         _lastAnimTick = millis();
         bool animChanged = false;

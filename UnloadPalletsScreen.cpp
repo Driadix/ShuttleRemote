@@ -10,7 +10,7 @@ void UnloadPalletsScreen::onEnter() {
     DataManager::getInstance().setPollingMode(DataManager::PollingMode::IDLE_KEEPALIVE);
     _state = ENTRY;
     _stateTimer = 0;
-    _spinner = NumericSpinnerWidget(2, 0); // Reset
+    _spinner = NumericSpinnerWidget(2, 0);
     _quantity = 0;
 }
 
@@ -44,34 +44,20 @@ void UnloadPalletsScreen::draw(U8G2& display) {
 }
 
 void UnloadPalletsScreen::handleInput(InputEvent event) {
-    if (_state != ENTRY) return; // Ignore input during message
+    if (_state != ENTRY) return;
 
     if (event == InputEvent::BACK_PRESS) {
         ScreenManager::getInstance().pop();
         return;
     }
 
-    if (event == InputEvent::OK_LONG_PRESS) { // Legacy uses OK (long?) or short?
-        // Legacy main loop key 'D' (OK) handled inputQuant logic.
-        // Let's use OK_LONG_PRESS to confirm action to be safe, or OK_SHORT_PRESS is usually navigation.
-        // NumericSpinner uses OK_SHORT_PRESS to switch digits.
-        // So we MUST use OK_LONG_PRESS to confirm entry.
-
+    if (event == InputEvent::OK_LONG_PRESS) {
         _quantity = _spinner.getValue();
         if (_quantity > 0) {
             if (DataManager::getInstance().sendCommand(SP::CMD_LONG_UNLOAD_QTY, _quantity)) {
                 _state = SUCCESS;
             } else {
-                // Queue full logic handled by Dashboard usually, but here?
-                // Maybe just show Fail or retry?
-                // Or let DataManager show specific error via dirty flag?
-                // But DataManager::sendCommand returns false if queue full.
-                // We can treat it as FAIL for now or just stay in ENTRY.
-                // Legacy shows QUEUE FULL.
-                // Let's show FAIL with specialized message? No space.
-                // Just stay in ENTRY and maybe blink?
-                // Or transition to FAIL state temporarily.
-                 _state = FAIL; // Generic fail
+                 _state = FAIL;
             }
         } else {
             _state = FAIL;
@@ -90,10 +76,10 @@ void UnloadPalletsScreen::tick() {
     if (_state != ENTRY) {
         if (millis() - _stateTimer > 2000) {
             if (_state == SUCCESS) {
-                ScreenManager::getInstance().popToRoot(); // Go back to Dashboard after success
+                ScreenManager::getInstance().popToRoot();
             } else {
-                _state = ENTRY; // Retry
-                _spinner = NumericSpinnerWidget(2, 0); // Reset
+                _state = ENTRY;
+                _spinner = NumericSpinnerWidget(2, 0);
                 setDirty();
             }
         }
