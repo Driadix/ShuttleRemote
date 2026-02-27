@@ -59,10 +59,14 @@ void StatusBarWidget::draw(U8G2& display, uint8_t x, uint8_t y) {
 
 void StatusBarWidget::tick() {
     bool isCharging = DataManager::getInstance().isCharging();
+    int currentBattery = DataManager::getInstance().getRemoteBatteryLevel();
     
     static bool lastCharging = false;
-    if (isCharging != lastCharging) {
+    static int lastBattery = -1;
+    
+    if (isCharging != lastCharging || currentBattery != lastBattery) {
         lastCharging = isCharging;
+        lastBattery = currentBattery;
         setDirty();
     }
 

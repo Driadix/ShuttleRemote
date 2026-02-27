@@ -24,8 +24,9 @@ void PowerController::init(int batteryPin, int chargePin) {
     pinMode(_chargePin, INPUT);
 
     _lastActivityTime = millis();
-    _lastBatteryCheck = millis();
-    _lastChargeCheck = millis();
+    
+    _lastBatteryCheck = millis() - 5000;
+    _lastChargeCheck = millis() - 100;
     
     // Release holds from previous sleep state
     rtc_gpio_init((gpio_num_t)13);

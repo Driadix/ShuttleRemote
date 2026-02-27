@@ -29,7 +29,8 @@ void DashboardScreen::onEvent(SystemEvent event) {
         event == SystemEvent::ERROR_OCCURRED ||
         event == SystemEvent::BATTERY_LOW ||
         event == SystemEvent::CONNECTION_LOST || 
-        event == SystemEvent::CONNECTION_RESTORED) {
+        event == SystemEvent::CONNECTION_RESTORED ||
+        event == SystemEvent::LOCAL_BATT_UPDATED) {
         setDirty();
     } else if (event == SystemEvent::CMD_DISPATCHED) {
         SP::CmdType cmd = DataManager::getInstance().getLastUserCommandType();
