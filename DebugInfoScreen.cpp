@@ -1,6 +1,7 @@
 #include "DebugInfoScreen.h"
 #include "ScreenManager.h"
 #include <cstdio>
+#include <cstdlib>
 
 DebugInfoScreen::DebugInfoScreen() : _pageIndex(0), _lastAnimTick(0), _animState(0) {}
 
@@ -33,19 +34,25 @@ void DebugInfoScreen::drawData(U8G2& display) {
 
     if (_pageIndex == 0) {
         char buf[64];
-        snprintf(buf, sizeof(buf), "Канал впред: %u", sensors.distanceF);
+        
+        // Grouped together to save vertical space for Voltage & Temp
+        snprintf(buf, sizeof(buf), "Канал F:%u R:%u", sensors.distanceF, sensors.distanceR);
         display.drawUTF8(2, 10, buf);
 
-        snprintf(buf, sizeof(buf), "Канал назад: %u", sensors.distanceR);
+        snprintf(buf, sizeof(buf), "Палет F:%u R:%u", sensors.distancePltF, sensors.distancePltR);
         display.drawUTF8(2, 22, buf);
 
-        snprintf(buf, sizeof(buf), "Паллет впред: %u", sensors.distancePltF);
+        snprintf(buf, sizeof(buf), "Энкодер угл: %u", sensors.angle);
         display.drawUTF8(2, 34, buf);
 
-        snprintf(buf, sizeof(buf), "Паллет назад: %u", sensors.distancePltR);
+        // Formatted directly without floats
+        const SP::TelemetryPacket& telemetry = DataManager::getInstance().getTelemetry();
+        uint16_t mv = telemetry.batteryVoltage_mV;
+        snprintf(buf, sizeof(buf), "АКБ: %d.%02d V", mv / 1000, (mv % 1000) / 10);
         display.drawUTF8(2, 46, buf);
 
-        snprintf(buf, sizeof(buf), "Энкодер угл: %u", sensors.angle);
+        int16_t temp = sensors.temperature_dC;
+        snprintf(buf, sizeof(buf), "Температура: %d.%d C", temp / 10, abs(temp % 10));
         display.drawUTF8(2, 58, buf);
 
         display.setCursor(120, 10);

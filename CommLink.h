@@ -11,7 +11,8 @@ public:
     void tick();
 
     // Sends command with smart throttle. Replaces any pending tracked transmission.
-    bool sendCommand(SP::CommandPacket packet, uint8_t maxRetries = 0, uint16_t ackTimeoutMs = 1000);
+    bool sendSimpleCommand(SP::SimpleCmdPacket packet, uint8_t maxRetries = 0, uint16_t ackTimeoutMs = 1000);
+    bool sendCommandWithArg(SP::ParamCmdPacket packet, uint8_t maxRetries = 0, uint16_t ackTimeoutMs = 1000);
     
     // Fire-and-forget. Sends immediately, doesn't wait for ACK.
     bool sendRequest(uint8_t msgID); 

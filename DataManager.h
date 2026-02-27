@@ -20,7 +20,7 @@ public:
     void tick();
     virtual void onEvent(SystemEvent event) override;
 
-    bool sendCommand(SP::CmdType cmd, int32_t arg1 = 0, int32_t arg2 = 0);
+    bool sendCommand(SP::CmdType cmd, int32_t arg = 0);
     bool sendRequest(SP::MsgID msgId);
     
     bool requestConfig(SP::ConfigParamID paramID);

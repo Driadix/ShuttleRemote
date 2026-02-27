@@ -21,7 +21,7 @@ void CommLink::handleRx() {
 
     while (_transport->available()) {
         uint8_t byte = _transport->read();
-        SP::FrameHeader* header = _parser.feed(byte);
+        SP::FrameHeader* header = _parser.feed(byte, millis());
 
         if (_parser.crcError) {
             LOG_W("COMM", "RX dropped: CRC mismatch");
@@ -77,10 +77,18 @@ void CommLink::handleRx() {
 }
 
 void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
-    if (_txState == TxState::WAITING_ACK && seq == _trackedSeq) {
-        uint8_t msgID = _trackedBuffer[6];
+    // Rely on the payload's refSeq, not the header's rolling seq
+    if (_txState == TxState::WAITING_ACK && ack->refSeq == _trackedSeq) {
+        uint8_t msgID = ((SP::FrameHeader*)_trackedBuffer)->msgID;
+        
         if (isUserCommand(msgID)) {
-            EventBus::publish(SystemEvent::CMD_ACKED);
+            // Let the UI know based on the ACK result payload
+            if (ack->result == 0) { // 0 = Success
+                EventBus::publish(SystemEvent::CMD_ACKED);
+            } else {
+                EventBus::publish(SystemEvent::CMD_FAILED);
+                LOG_W("COMM", "Command rejected by shuttle. Code: %d", ack->result);
+            }
         }
         _txState = TxState::IDLE; // Cleared!
     }
@@ -89,8 +97,8 @@ void CommLink::processIncomingAck(uint8_t seq, SP::AckPacket* ack) {
 // Formats a raw packet and sends it to the transport layer instantly
 void CommLink::transmitRawPacket(uint8_t msgID, const void* payload, uint8_t payloadLen, uint8_t* outBuffer, uint16_t& outLen) {
     SP::FrameHeader header;
-    header.sync1 = SP::PROTOCOL_SYNC_1;
-    header.sync2 = SP::PROTOCOL_SYNC_2;
+    header.sync1 = SP::PROTOCOL_SYNC_1_V2;
+    header.sync2 = SP::PROTOCOL_SYNC_2_V2;
     header.length = payloadLen;
     header.targetID = _model->getTargetShuttleID();
     header.seq = _nextSeqNum++;
@@ -145,8 +153,8 @@ bool CommLink::sendRequest(uint8_t msgID) {
     return true;
 }
 
-// Action Dispatcher (Dual-Slot + Throttled)
-bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_t ackTimeoutMs) {
+// Action Dispatchers (Dual-Slot + Throttled)
+bool CommLink::sendSimpleCommand(SP::SimpleCmdPacket packet, uint8_t maxRetries, uint16_t ackTimeoutMs) {
     // GLOBAL THROTTLE: Protect 9600-baud bandwidth against generic button mashing
     if (packet.cmdType != SP::CMD_STOP && (millis() - _lastCmdTxTime < 300)) {
         LOG_D("COMM", "Command dropped (Global Throttle Active)");
@@ -155,7 +163,7 @@ bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_
 
     // RELIABLE CHANNEL PROTECTION: Do not overwrite critical configs if we requested a reliable action
     if (_txState == TxState::WAITING_ACK && maxRetries > 0) {
-        uint8_t trackedMsgID = _trackedBuffer[6];
+        uint8_t trackedMsgID = ((SP::FrameHeader*)_trackedBuffer)->msgID;
         if (trackedMsgID == SP::MSG_CONFIG_SET || trackedMsgID == SP::MSG_CONFIG_SYNC_PUSH) {
             LOG_W("COMM", "Reliable action dropped; critical config currently in transit.");
             return false; 
@@ -165,8 +173,27 @@ bool CommLink::sendCommand(SP::CommandPacket packet, uint8_t maxRetries, uint16_
     _lastCmdTxTime = millis();
     _lastSentCmdType = packet.cmdType;
 
-    // Dispatcher automatically routes to Slot 1 (Volatile) or Slot 2 (Reliable)
-    return trackAndTransmit(SP::MSG_COMMAND, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
+    return trackAndTransmit(SP::MSG_CMD_SIMPLE, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
+}
+
+bool CommLink::sendCommandWithArg(SP::ParamCmdPacket packet, uint8_t maxRetries, uint16_t ackTimeoutMs) {
+    if (packet.cmdType != SP::CMD_STOP && (millis() - _lastCmdTxTime < 300)) {
+        LOG_D("COMM", "Command dropped (Global Throttle Active)");
+        return true;
+    }
+
+    if (_txState == TxState::WAITING_ACK && maxRetries > 0) {
+        uint8_t trackedMsgID = ((SP::FrameHeader*)_trackedBuffer)->msgID;
+        if (trackedMsgID == SP::MSG_CONFIG_SET || trackedMsgID == SP::MSG_CONFIG_SYNC_PUSH) {
+            LOG_W("COMM", "Reliable action dropped; critical config currently in transit.");
+            return false; 
+        }
+    }
+
+    _lastCmdTxTime = millis();
+    _lastSentCmdType = packet.cmdType;
+
+    return trackAndTransmit(SP::MSG_CMD_WITH_ARG, &packet, sizeof(packet), maxRetries, ackTimeoutMs);
 }
 
 // Settings Dispatcher
@@ -201,7 +228,7 @@ void CommLink::processTxQueue() {
                     _trackedTxTime = millis();
                 }
             } else {
-                uint8_t msgID = _trackedBuffer[6];
+                uint8_t msgID = ((SP::FrameHeader*)_trackedBuffer)->msgID;
                 if (isUserCommand(msgID)) {
                     EventBus::publish(SystemEvent::CMD_FAILED);
                 }
@@ -217,7 +244,7 @@ bool CommLink::isWaitingForAck() const {
 
 void CommLink::clearPendingCommands() {
     if (_txState == TxState::WAITING_ACK) {
-        uint8_t msgID = _trackedBuffer[6];
+        uint8_t msgID = ((SP::FrameHeader*)_trackedBuffer)->msgID;
         if (isUserCommand(msgID)) {
             _txState = TxState::IDLE;
         }
@@ -225,5 +252,5 @@ void CommLink::clearPendingCommands() {
 }
 
 bool CommLink::isUserCommand(uint8_t msgID) const {
-    return (msgID == SP::MSG_COMMAND || msgID == SP::MSG_CONFIG_SET || msgID == SP::MSG_CONFIG_GET || msgID == SP::MSG_CONFIG_SYNC_PUSH);
+    return (msgID == SP::MSG_CMD_SIMPLE || msgID == SP::MSG_CMD_WITH_ARG || msgID == SP::MSG_CONFIG_SET || msgID == SP::MSG_CONFIG_GET || msgID == SP::MSG_CONFIG_SYNC_PUSH);
 }

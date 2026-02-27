@@ -59,7 +59,8 @@ const char* DebugUtils::getMsgIdName(uint8_t msgId) {
         case SP::MSG_CONFIG_SET:    return "MSG_CONFIG_SET";
         case SP::MSG_CONFIG_GET:    return "MSG_CONFIG_GET";
         case SP::MSG_CONFIG_REP:    return "MSG_CONFIG_REP";
-        case SP::MSG_COMMAND:       return "MSG_COMMAND";
+        case SP::MSG_CMD_SIMPLE:    return "MSG_CMD_SIMPLE";
+        case SP::MSG_CMD_WITH_ARG:  return "MSG_CMD_WITH_ARG";
         case SP::MSG_ACK:           return "MSG_ACK";
         default:                    return "UNKNOWN_MSG_ID";
     }
@@ -101,10 +102,8 @@ const char* DebugUtils::getUICommandName(uint8_t cmdType) {
         case SP::CMD_MANUAL_MODE:     return "Ручной реж.";
         case SP::CMD_LOG_MODE:        return "Лог реж.";
         case SP::CMD_HOME:            return "Домой";
-        case SP::CMD_PING:            return "Пинг";
         case SP::CMD_FIRMWARE_UPDATE: return "Обновление";
         case SP::CMD_SYSTEM_RESET:    return "Сброс сист.";
-        case SP::CMD_SET_DATETIME:    return "Уст. время";
         default:                      return "Команда";
     }
 }

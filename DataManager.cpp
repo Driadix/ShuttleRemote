@@ -80,7 +80,7 @@ void DataManager::tick() {
     }
 }
 
-bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
+bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg) {
     if (!_model.isConnected()) return false; 
 
     _lastUserCommandType = cmd;
@@ -91,19 +91,25 @@ bool DataManager::sendCommand(SP::CmdType cmd, int32_t arg1, int32_t arg2) {
     switch (cmd) {
         case SP::CMD_CALIBRATE:
         case SP::CMD_SAVE_EEPROM:
-        case SP::CMD_SET_DATETIME:
             retries = 1; // Only invisible system states get a retry
             timeout = 1500;
             break;
         default: break;
     }
 
-    SP::CommandPacket packet;
-    packet.cmdType = (uint8_t)cmd;
-    packet.arg1 = arg1;
-    packet.arg2 = arg2;
+    bool needsArg = (cmd == SP::CMD_MOVE_DIST_R || 
+                     cmd == SP::CMD_MOVE_DIST_F || 
+                     cmd == SP::CMD_LONG_UNLOAD_QTY);
 
-    bool sent = _commLink.sendCommand(packet, retries, timeout);
+    bool sent = false;
+    if (needsArg) {
+        SP::ParamCmdPacket packet = { arg, (uint8_t)cmd };
+        sent = _commLink.sendCommandWithArg(packet, retries, timeout);
+    } else {
+        SP::SimpleCmdPacket packet = { (uint8_t)cmd };
+        sent = _commLink.sendSimpleCommand(packet, retries, timeout);
+    }
+    
     if (sent) EventBus::publish(SystemEvent::CMD_DISPATCHED);
     return sent;
 }
